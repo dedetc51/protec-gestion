@@ -1,0 +1,38 @@
+name: CI
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18.6-bookworm
+        env: {POSTGRES_DB: protec_testing, POSTGRES_USER: protec, POSTGRES_PASSWORD: testing-only}
+        ports: [5432:5432]
+        options: >-
+          --health-cmd "pg_isready -U protec -d protec_testing" --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      APP_ENV: testing
+      APP_KEY: base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+      DB_CONNECTION: pgsql
+      DB_HOST: 127.0.0.1
+      DB_PORT: 5432
+      DB_DATABASE: protec_testing
+      DB_USERNAME: protec
+      DB_PASSWORD: testing-only
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with: {php-version: '8.5', extensions: intl, pdo_pgsql, zip}
+      - uses: actions/setup-node@v4
+        with: {node-version: '24', cache: npm}
+      - run: composer validate --strict
+      - run: composer install --no-interaction --prefer-dist
+      - run: php artisan migrate --force
+      - run: php artisan test
+      - run: vendor/bin/pint --test
+      - run: npm ci && npm run build
+      - run: docker compose config --quiet
+      - run: '! git grep -En "(BEGIN (RSA|OPENSSH) PRIVATE KEY|APP_KEY=base64:[A-Za-z0-9+/]{20,}|INITIAL_ADMIN_PASSWORD=.+)" -- ":(exclude).env.example"'
+      - run: docker build -f docker/php/Dockerfile .
