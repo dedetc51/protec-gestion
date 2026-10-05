@@ -1,0 +1,1 @@
+@extends('layouts.app') @section('title',$module) @section('content')<div class="page-heading"><h1>{{ $module }}</h1><p>Module prochainement disponible</p></div><section class="empty-state"><h2>Préparation en cours</h2><p>Aucune donnée opérationnelle n’est encore enregistrée dans ce module.</p></section>@endsection

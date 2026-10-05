@@ -1,0 +1,1 @@
+@extends('layouts.app') @section('title','Administration') @section('content')<div class="page-heading"><h1>Administration</h1><p>Les futurs réglages de l’application seront regroupés ici.</p></div>@endsection
