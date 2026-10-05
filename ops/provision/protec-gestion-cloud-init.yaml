@@ -1,0 +1,51 @@
+#cloud-config
+hostname: protec-gestion
+timezone: Europe/Paris
+package_update: true
+package_upgrade: true
+groups:
+  - docker
+packages:
+  - qemu-guest-agent
+  - nftables
+  - unattended-upgrades
+  - ca-certificates
+  - curl
+  - docker.io
+  - docker-compose-v2
+users:
+  - default
+  - name: protec-deploy
+    groups: [docker]
+    shell: /bin/bash
+    lock_passwd: true
+    sudo: ["ALL=(root) NOPASSWD: /usr/bin/systemctl restart docker, /usr/bin/systemctl status docker"]
+    ssh_authorized_keys:
+      - SSH_AUTHORIZED_KEY
+ssh_pwauth: false
+disable_root: true
+write_files:
+  - path: /etc/ssh/sshd_config.d/99-protec-hardening.conf
+    permissions: '0644'
+    content: |
+      PasswordAuthentication no
+      PermitRootLogin no
+  - path: /etc/nftables.d/protec-gestion.nft
+    permissions: '0644'
+    content: |
+      table inet protec_gestion {
+        chain input {
+          type filter hook input priority 0; policy drop;
+          ct state established,related accept
+          iif lo accept
+          ip protocol icmp accept
+          tcp dport 22 ip saddr { ADMIN_CIDR } accept
+          tcp dport HTTP_PORT ip saddr { LAN_CIDR, VPN_CIDR } accept
+        }
+      }
+runcmd:
+  - [systemctl, enable, --now, qemu-guest-agent]
+  - [sh, -c, "grep -q 'include /etc/nftables.d/\\*.nft' /etc/nftables.conf || printf '\ninclude /etc/nftables.d/*.nft\n' >> /etc/nftables.conf"]
+  - [systemctl, enable, --now, nftables]
+  - [install, -d, -m, '0750', -o, protec-deploy, -g, protec-deploy, /opt/protec-gestion]
+final_message: "Protec-Gestion guest initialization complete"
