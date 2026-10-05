@@ -12,4 +12,10 @@ class AuditEvent extends Model
     {
         return ['metadata' => 'array'];
     }
+
+    protected static function booted(): void
+    {
+        static::updating(fn () => throw new \LogicException('Les événements d’audit sont immuables.'));
+        static::deleting(fn () => throw new \LogicException('Les événements d’audit sont immuables.'));
+    }
 }

@@ -8,11 +8,11 @@ use Illuminate\Http\Request;
 
 class SecurityAudit
 {
-    private const SENSITIVE = ['password', 'password_confirmation', 'cookie', 'authorization', 'token', 'secret'];
+    private const ALLOWED_METADATA = ['action', 'email_hash', 'route', 'target_id'];
 
     public function record(string $event, string $outcome, ?User $actor, Request $request, array $metadata = []): AuditEvent
     {
-        $safe = collect($metadata)->reject(fn ($value, $key) => in_array(strtolower((string) $key), self::SENSITIVE, true))->all();
+        $safe = collect($metadata)->only(self::ALLOWED_METADATA)->map(fn ($value) => is_scalar($value) || $value === null ? $value : null)->filter(fn ($value) => $value !== null)->all();
 
         return AuditEvent::create([
             'actor_id' => $actor?->id,

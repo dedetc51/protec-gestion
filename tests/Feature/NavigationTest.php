@@ -15,7 +15,8 @@ class NavigationTest extends TestCase
         $admin = User::factory()->create(['role' => 'admin', 'must_change_password' => false]);
         $this->actingAs($admin)->get('/dashboard')->assertOk()
             ->assertSeeInOrder(['Accueil', 'Matériel', 'Véhicules', 'Administration', 'Déconnexion'])
-            ->assertSee('aria-controls="sidebar"', false)->assertSee('aria-current="page"', false);
+            ->assertSee('aria-controls="sidebar"', false)->assertSee('aria-current="page"', false)
+            ->assertDontSee('Opérationnel');
         $this->actingAs($admin)->get('/equipment')->assertSee('Module prochainement disponible');
         $this->actingAs($admin)->get('/vehicles')->assertSee('Module prochainement disponible');
     }

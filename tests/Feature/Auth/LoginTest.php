@@ -48,4 +48,21 @@ class LoginTest extends TestCase
         $this->get('/forgot-password')->assertNotFound();
         $this->get('/reset-password/test')->assertNotFound();
     }
+
+    public function test_failed_login_limit_is_scoped_to_normalized_email_and_ip(): void
+    {
+        User::factory()->create(['email' => 'first@example.test']);
+        foreach (range(1, 5) as $_) {
+            $this->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])->post('/login', ['email' => ' FIRST@EXAMPLE.TEST ', 'password' => 'wrong']);
+        }
+        $this->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])->post('/login', ['email' => 'first@example.test', 'password' => 'wrong'])->assertStatus(429);
+        $this->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])->post('/login', ['email' => 'other@example.test', 'password' => 'wrong'])->assertStatus(302);
+        $this->withServerVariables(['REMOTE_ADDR' => '192.0.2.2'])->post('/login', ['email' => 'first@example.test', 'password' => 'wrong'])->assertStatus(302);
+    }
+
+    public function test_email_is_normalized_when_written(): void
+    {
+        $user = User::factory()->create(['email' => ' Mixed@Example.TEST ']);
+        $this->assertSame('mixed@example.test', $user->email);
+    }
 }

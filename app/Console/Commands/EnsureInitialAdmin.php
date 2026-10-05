@@ -10,7 +10,7 @@ use Illuminate\Validation\Rules\Password;
 
 class EnsureInitialAdmin extends Command
 {
-    protected $signature = 'protec:ensure-initial-admin {--name=} {--email=} {--password=}';
+    protected $signature = 'protec:ensure-initial-admin {--name=} {--email=}';
 
     protected $description = 'Create the single initial Protec-Gestion administrator';
 
@@ -18,7 +18,7 @@ class EnsureInitialAdmin extends Command
     {
         $name = $this->option('name') ?: env('INITIAL_ADMIN_NAME');
         $email = strtolower(trim((string) ($this->option('email') ?: env('INITIAL_ADMIN_EMAIL'))));
-        $password = $this->option('password') ?: env('INITIAL_ADMIN_PASSWORD');
+        $password = env('INITIAL_ADMIN_PASSWORD');
         if (Validator::make(compact('name', 'email', 'password'), [
             'name' => ['required', 'string', 'max:255'], 'email' => ['required', 'email'],
             'password' => ['required', Password::min(12)->mixedCase()->numbers()->symbols()],

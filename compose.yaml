@@ -20,11 +20,11 @@ services:
     <<: *app
     command: ["php", "artisan", "schedule:work"]
   nginx:
-    image: nginx:1.28.0-alpine
+    image: protec-gestion-nginx:${APP_IMAGE_TAG:-local}
+    build:
+      context: .
+      dockerfile: docker/nginx/Dockerfile
     ports: ["${HTTP_BIND_IP:-127.0.0.1}:${HTTP_PORT:-8080}:80"]
-    volumes:
-      - .:/var/www/html:ro
-      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
     restart: unless-stopped
     security_opt: [no-new-privileges:true]
     logging: {driver: json-file, options: {max-size: 10m, max-file: "3"}}

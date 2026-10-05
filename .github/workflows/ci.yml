@@ -29,10 +29,12 @@ jobs:
         with: {node-version: '24', cache: npm}
       - run: composer validate --strict
       - run: composer install --no-interaction --prefer-dist
+      - run: npm ci && npm run build
       - run: php artisan migrate --force
       - run: php artisan test
       - run: vendor/bin/pint --test
-      - run: npm ci && npm run build
+      - run: cp .env.example .env
       - run: docker compose config --quiet
-      - run: '! git grep -En "(BEGIN (RSA|OPENSSH) PRIVATE KEY|APP_KEY=base64:[A-Za-z0-9+/]{20,}|INITIAL_ADMIN_PASSWORD=.+)" -- ":(exclude).env.example"'
+      - run: '! git grep -En "(BEGIN (RSA|OPENSSH) PRIVATE KEY|APP_KEY=base64:[A-Za-z0-9+/]{20,}|INITIAL_ADMIN_PASSWORD=.+)" -- ":(exclude).env.example" ":(exclude).github/workflows/ci.yml"'
       - run: docker build -f docker/php/Dockerfile .
+      - run: docker build -f docker/nginx/Dockerfile .
