@@ -35,7 +35,11 @@ recover() {
 [[ -f $shared_env && ! -L $shared_env ]] || { printf 'Missing regular shared .env\n' >&2; false; }
 mode=$(stat -c '%a' "$shared_env"); [[ $mode == 600 ]] || { printf 'shared .env must have mode 0600\n' >&2; false; }
 for variable in APP_KEY DB_DATABASE DB_USERNAME DB_PASSWORD; do grep -Eq "^${variable}=.+" "$shared_env" || { printf 'Missing required variable %s\n' "$variable" >&2; false; }; done
+app_env_count=$(grep -c '^APP_ENV=' "$shared_env" || true)
+[[ $app_env_count == 1 ]] || { printf 'APP_ENV must be defined exactly once as production\n' >&2; false; }
 grep -qx 'APP_ENV=production' "$shared_env" || { printf 'APP_ENV must be production\n' >&2; false; }
+app_debug_count=$(grep -c '^APP_DEBUG=' "$shared_env" || true)
+[[ $app_debug_count == 1 ]] || { printf 'APP_DEBUG must be defined exactly once as false\n' >&2; false; }
 grep -qx 'APP_DEBUG=false' "$shared_env" || { printf 'APP_DEBUG must be false\n' >&2; false; }
 ! grep -q '^INITIAL_ADMIN_' "$shared_env" || { printf 'Initial admin secrets must not be stored in persistent .env\n' >&2; false; }
 [[ ! -e $root/current || -L $root/current ]] || { printf 'current must be a symlink\n' >&2; false; }

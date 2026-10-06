@@ -9,7 +9,8 @@ Depuis un poste autorisé sur le LAN ou le VPN, exporter `PROTEC_SSH_TARGET` et
 effectue une sauvegarde avant migration et ne bascule le lien `current`
 qu'après migrations et contrôles de santé.
 Le déploiement refuse toute mutation si ce fichier ne définit pas exactement
-`APP_ENV=production` et `APP_DEBUG=false`.
+une occurrence de `APP_ENV=production` et une occurrence de `APP_DEBUG=false` ;
+les clés absentes ou dupliquées sont refusées.
 La production doit définir `HTTP_BIND_IP` sur l'adresse privée de la VM et
 `HTTP_PORT=8080`; ce même port est injecté dans le pare-feu invité. Chaque
 release exporte `APP_IMAGE_TAG` avec son SHA exact, y compris lors d'un rollback.
@@ -26,7 +27,11 @@ n'affiche aucun secret de bootstrap.
 Exécuter sur la VM `ops/deploy/rollback.sh <sha>`. Une restauration de base est
 volontairement séparée et exige `--restore-database <archive.sql.gz>` ; elle
 n'est appropriée que pour une migration incompatible et après validation de
-l'archive. Les releases en échec et les dumps ne sont jamais supprimés.
+l'archive. Avant toute intervention, le script mémorise la release désignée par
+`current` et son tag d'image. Si la création ou le chargement de la base échoue,
+il restaure la base si nécessaire puis relance précisément cette release active,
+sans modifier `current`. Les releases en échec et les dumps ne sont jamais
+supprimés.
 
 ## Sauvegarde et restauration
 

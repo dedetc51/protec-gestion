@@ -7,6 +7,13 @@ if [[ $root =~ ^/opt/[A-Za-z0-9._/-]+$ && $root != *..* ]]; then :
 elif [[ ${PROTEC_TESTING:-0} == 1 && $root =~ ^/(private/)?(tmp|var/folders)/[A-Za-z0-9._/-]+$ && $root != *..* ]]; then :
 else printf 'Unsafe remote root\n' >&2; exit 2
 fi
+current="$root/current"
+[[ -L $current ]] || { printf 'current must identify the active release\n' >&2; exit 1; }
+active_release=$(readlink -f "$current")
+releases_dir=$(realpath "$root/releases")
+[[ $active_release == "$releases_dir/"* && -d $active_release ]] || { printf 'current points outside the release directory\n' >&2; exit 1; }
+active_image_tag=${active_release##*/}
+[[ $active_image_tag =~ ^[0-9a-f]{40}$ ]] || { printf 'active release has an invalid image tag\n' >&2; exit 1; }
 release="$root/releases/$revision"; shared_env="$root/shared/.env"; dump=''; export COMPOSE_PROJECT_NAME=protec-gestion APP_IMAGE_TAG="$revision"
 if (($#)); then
   [[ ${1:-} == --restore-database && -n ${2:-} && $# -eq 2 ]] || usage
@@ -42,6 +49,8 @@ SQL
         docker compose exec -T postgres dropdb -U "$db_user" --if-exists "$drill" >/dev/null 2>&1 || true
         ;;
     esac
+    cd "$active_release"
+    export APP_IMAGE_TAG="$active_image_tag"
     docker compose up -d --remove-orphans >/dev/null 2>&1 || true
     exit "$rc"
   }

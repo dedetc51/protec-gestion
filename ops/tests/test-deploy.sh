@@ -130,6 +130,14 @@ sed -i.bak 's/^APP_DEBUG=.*/APP_DEBUG=true/' "$DEPLOY_ROOT/shared/.env"; rm -f "
 run_gate_failure 'APP_DEBUG must be false'
 
 setup_deploy_case
+printf 'APP_ENV=local\n' >>"$DEPLOY_ROOT/shared/.env"
+run_gate_failure 'APP_ENV must be defined exactly once as production'
+
+setup_deploy_case
+printf 'APP_DEBUG=true\n' >>"$DEPLOY_ROOT/shared/.env"
+run_gate_failure 'APP_DEBUG must be defined exactly once as false'
+
+setup_deploy_case
 run_gate_failure 'initial-admin.env may be omitted only when an active administrator exists' STUB_ADMIN_EXISTS=0
 assert_contains 'SELECT EXISTS (SELECT 1 FROM users' "$TMP/docker.log"
 ! grep -Fq 'INITIAL_ADMIN_' "$TMP/docker.log" || fail 'administrator existence check exposed bootstrap secrets'
@@ -167,7 +175,7 @@ ln -s "$ROLLBACK_ROOT/releases/$previous" "$ROLLBACK_ROOT/current"
 printf 'CREATE TABLE users(id bigint);\n' | gzip -c >"$ROLLBACK_ROOT/shared/backups/protec-gestion-20261006-120000.sql.gz"
 cat >"$TMP/rollback-bin/docker" <<'EOF'
 #!/usr/bin/env bash
-printf 'CMD %s\n' "$*" >>"$STUB_ROLLBACK_LOG"
+printf 'CTX %s TAG %s CMD %s\n' "$PWD" "${APP_IMAGE_TAG:-}" "$*" >>"$STUB_ROLLBACK_LOG"
 if [[ $* == *' psql '*postgres* ]]; then
   sql=$(cat)
   printf 'SQL %s\n' "$sql" >>"$STUB_ROLLBACK_LOG"
@@ -204,10 +212,13 @@ assert_contains 'RENAME TO "protec_gestion"' "$TMP/rollback.log"
 run_failed_rollback createdb
 assert_contains 'dropdb -U protec_gestion --if-exists protec_gestion_restore_' "$TMP/rollback.log"
 assert_contains 'up -d --remove-orphans' "$TMP/rollback.log"
+active_release=$(realpath "$ROLLBACK_ROOT/releases/$previous")
+assert_contains "CTX $active_release TAG $previous CMD compose up -d --remove-orphans" "$TMP/rollback.log"
 
 run_failed_rollback import
 assert_contains 'dropdb -U protec_gestion --if-exists protec_gestion_restore_' "$TMP/rollback.log"
 assert_contains 'up -d --remove-orphans' "$TMP/rollback.log"
+assert_contains "CTX $active_release TAG $previous CMD compose up -d --remove-orphans" "$TMP/rollback.log"
 
 run_failed_rollback rename
 assert_contains 'ALTER DATABASE "protec_gestion_previous_' "$TMP/rollback.log"
