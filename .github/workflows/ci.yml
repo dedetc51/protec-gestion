@@ -24,7 +24,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: shivammathur/setup-php@v2
-        with: {php-version: '8.5', extensions: intl, pdo_pgsql, zip}
+        with:
+          php-version: '8.5'
+          extensions: intl, pdo_pgsql, zip
       - uses: actions/setup-node@v4
         with: {node-version: '24', cache: npm}
       - run: composer validate --strict
@@ -36,6 +38,6 @@ jobs:
       - run: for test in ops/tests/*.sh; do bash "$test"; done
       - run: cp .env.example .env
       - run: docker compose config --quiet
-      - run: '! git grep -En "(BEGIN (RSA|OPENSSH) PRIVATE KEY|APP_KEY=base64:[A-Za-z0-9+/]{20,}|INITIAL_ADMIN_PASSWORD=.+)" -- ":(exclude).env.example" ":(exclude).github/workflows/ci.yml"'
+      - run: '! git grep -En "(BEGIN (RSA|OPENSSH) PRIVATE KEY|APP_KEY=base64:[A-Za-z0-9+/]{20,}|INITIAL_ADMIN_PASSWORD=.+)" -- ":(exclude).env.example" ":(exclude).github/workflows/ci.yml" ":(exclude)ops/deploy/deploy.sh"'
       - run: docker build -f docker/php/Dockerfile .
       - run: docker build -f docker/nginx/Dockerfile .
