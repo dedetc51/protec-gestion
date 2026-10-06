@@ -36,6 +36,27 @@ test ! -e "$TMP/backups/protec-gestion-20261007-021500.sql.gz" || fail "failed a
 grep -q 'COMPOSE_PROJECT_NAME=protec-gestion' "$SCRIPT" || fail "backup compose project is not fixed"
 grep -q 'DB_USERNAME' "$SCRIPT" || fail "backup does not read database user"
 test -x "$DRILL" || fail "restore drill is not executable"
-grep -q 'protec_restore_drill_' "$DRILL" || fail "restore drill does not use a unique disposable database"
-! grep -q 'dropdb.*--if-exists' "$DRILL" || fail "restore drill must refuse collisions, not pre-drop"
+
+# Restore drills accept only a canonical regular dump below BACKUP_DIR.
+printf 'outside\n' | gzip -c >"$TMP/protec-gestion-20261006-021500.sql.gz"
+printf 'DB_USERNAME=protec_gestion\nDB_DATABASE=protec_gestion\n' >"$TMP/env"
+chmod 600 "$TMP/env"
+: >"$TMP/docker.log"
+cat >"$TMP/bin/docker" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$STUB_DOCKER_LOG"
+case "$*" in
+  *' psql '*'SELECT to_regclass'*) printf 't\n';;
+esac
+EOF
+chmod +x "$TMP/bin/docker"
+if PATH="$TMP/bin:$PATH" STUB_DOCKER_LOG="$TMP/docker.log" BACKUP_DIR="$TMP/backups" BACKUP_ENV_FILE="$TMP/env" "$DRILL" "$TMP/protec-gestion-20261006-021500.sql.gz" >"$TMP/drill.out" 2>&1; then
+  fail "restore drill accepted a dump outside BACKUP_DIR"
+fi
+test ! -s "$TMP/docker.log" || fail "restore drill touched PostgreSQL for an out-of-directory dump"
+
+printf 'inside\n' | gzip -c >"$TMP/backups/protec-gestion-20261006-021500.sql.gz"
+PATH="$TMP/bin:$PATH" STUB_DOCKER_LOG="$TMP/docker.log" BACKUP_DIR="$TMP/backups" BACKUP_ENV_FILE="$TMP/env" "$DRILL" "$TMP/backups/protec-gestion-20261006-021500.sql.gz" >"$TMP/drill.out"
+grep -Eq 'createdb .*protec_restore_drill_[0-9]{14}_[0-9]+' "$TMP/docker.log" || fail "restore drill database name is not unique"
+grep -Eq 'dropdb .*protec_restore_drill_[0-9]{14}_[0-9]+' "$TMP/docker.log" || fail "restore drill did not remove its own database"
 printf 'test-backup: ok\n'

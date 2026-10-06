@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 export COMPOSE_PROJECT_NAME=protec-gestion
-dump=${1:-}; env_file=${BACKUP_ENV_FILE:-/opt/protec-gestion/shared/.env}
-[[ $dump =~ /protec-gestion-[0-9]{8}-[0-9]{6}\.sql\.gz$ ]] || { printf 'Usage: %s <verified dump>\n' "$0" >&2; exit 2; }
+requested_dump=${1:-}; env_file=${BACKUP_ENV_FILE:-/opt/protec-gestion/shared/.env}; backup_dir=${BACKUP_DIR:-/opt/protec-gestion/shared/backups}
+[[ -n $requested_dump ]] || { printf 'Usage: %s <verified dump below BACKUP_DIR>\n' "$0" >&2; exit 2; }
+backup_dir=$(realpath "$backup_dir") || { printf 'BACKUP_DIR does not exist\n' >&2; exit 2; }
+dump=$(realpath "$requested_dump") || { printf 'Dump does not exist\n' >&2; exit 2; }
+[[ -f $dump && ! -L $requested_dump && $dump == "$backup_dir"/protec-gestion-????????-??????.sql.gz && ${dump##*/} =~ ^protec-gestion-[0-9]{8}-[0-9]{6}\.sql\.gz$ ]] || { printf 'Dump must be a canonical regular archive below BACKUP_DIR\n' >&2; exit 2; }
 gzip -t "$dump"; db_user=$(sed -n 's/^DB_USERNAME=//p' "$env_file"); db_name="protec_restore_drill_$(date +%Y%m%d%H%M%S)_$$"
 [[ $db_user =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || exit 2
 owned=0

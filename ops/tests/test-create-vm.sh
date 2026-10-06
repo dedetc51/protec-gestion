@@ -8,64 +8,157 @@ trap 'rm -rf "$TMP"' EXIT
 
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 assert_fails() { if "$@" >"$TMP/out" 2>&1; then fail "command unexpectedly succeeded: $*"; fi; }
+assert_contains() { grep -Fq -- "$1" "$2" || fail "missing '$1' in $2"; }
+assert_not_logged() { ! grep -Eq -- "$1" "$TMP/qm.log" || fail "unexpected qm action matching $1"; }
 
-assert_fails "$SCRIPT"
-grep -q 'required' "$TMP/out" || fail "missing required-input diagnostic"
-
-# Behavioral preflight: an occupied VMID must stop before any creation.
-mkdir -p "$TMP/bin"
+mkdir -p "$TMP/bin" "$TMP/snippets"
 cat >"$TMP/bin/pvecm" <<'EOF'
 #!/bin/sh
 printf 'Quorate: Yes\n'
 EOF
 cat >"$TMP/bin/pvesh" <<'EOF'
 #!/bin/sh
-printf '{"memory":{"free":8589934592}}\n'
+case "$*" in *status*) printf '{"memory":{"free":%s}}\n' "${STUB_FREE_MEM:-8589934592}";; *firewall*) printf '{}\n';; esac
 EOF
 cat >"$TMP/bin/jq" <<'EOF'
 #!/bin/sh
-case "$1" in -r) printf '8589934592\n';; *) exit 0;; esac
+case " $* " in
+  *' -r '*) cat >/dev/null; printf '%s\n' "${STUB_FREE_MEM:-8589934592}";;
+  *' -n '*)
+    status=''; fingerprint=''
+    while [ "$#" -gt 0 ]; do
+      case "$1" in --arg) case "$2" in status) status=$3;; ssh_fingerprint) fingerprint=$3;; esac; shift 3;; *) shift;; esac
+    done
+    printf '{"status":"%s","ssh_fingerprint":"%s"}\n' "$status" "$fingerprint";;
+  *) cat >/dev/null; exit 0;;
+esac
 EOF
-cat >"$TMP/bin/qm" <<'EOF'
+cat >"$TMP/bin/pvesm" <<'EOF'
 #!/bin/sh
-printf '%s\n' "$*" >>"$STUB_QM_LOG"
-case "$1" in status) exit 0;; list) exit 0;; create) printf created >>"$STUB_CREATED";; esac
+case "$*" in *--content*backup*) printf '[{"active":1}]\n';; *) printf '[{"active":1,"avail":%s}]\n' "${STUB_STORAGE_AVAIL:-85899345920}";; esac
 EOF
-for command in pvesm ip ping getent sha512sum; do
-  cat >"$TMP/bin/$command" <<'EOF'
+cat >"$TMP/bin/ip" <<'EOF'
+#!/bin/sh
+case "$1 $2" in
+  'link show') exit 0;; 'neigh show') exit 0;;
+  'route show') printf 'default via %s dev vmbr0\n' "${STUB_LIVE_GATEWAY:-$GATEWAY}";;
+  'route get') printf '%s via %s dev vmbr0\n' "$2" "${STUB_LIVE_GATEWAY:-$GATEWAY}";;
+esac
+EOF
+cat >"$TMP/bin/ping" <<'EOF'
+#!/usr/bin/env bash
+[[ ${STUB_PING_COLLISION:-0} == 1 ]] && exit 0
+exit 1
+EOF
+cat >"$TMP/bin/getent" <<'EOF'
+#!/bin/sh
+exit 2
+EOF
+cat >"$TMP/bin/dig" <<'EOF'
+#!/usr/bin/env bash
+case "$*" in
+  *deb.debian.org*) printf '203.0.113.10\n';;
+  *protec-gestion.cuperly*) [[ ${STUB_DNS_COLLISION:-0} == 1 ]] && printf '192.0.2.10\n';;
+esac
+EOF
+cat >"$TMP/bin/sha512sum" <<'EOF'
+#!/usr/bin/env bash
+cat >/dev/null
+[[ ${STUB_CHECKSUM_FAIL:-0} == 1 ]] && exit 1
+exit 0
+EOF
+cat >"$TMP/bin/ssh-keyscan" <<'EOF'
+#!/bin/sh
+printf '192.0.2.10 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITest\n'
+EOF
+cat >"$TMP/bin/ssh-keygen" <<'EOF'
+#!/bin/sh
+printf '256 SHA256:approved protec-gestion (ED25519)\n'
+EOF
+cat >"$TMP/bin/ssh" <<'EOF'
 #!/bin/sh
 exit 0
 EOF
-done
+cat >"$TMP/bin/sleep" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+cat >"$TMP/bin/qm" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$STUB_QM_LOG"
+case "$1" in
+  status) [[ ${STUB_VM_EXISTS:-0} == 1 ]] && { printf 'status: stopped\n'; exit 0; }; exit 1;;
+  list) printf ' VMID NAME STATUS\n'; [[ ${STUB_NAME_COLLISION:-0} == 1 ]] && printf ' 999 protec-gestion stopped\n';;
+  config) printf 'name: protec-gestion\ntags: webapp;debian13;protec-gestion\nnet0: virtio=AA:BB:CC:DD:EE:FF,bridge=vmbr0,firewall=1\n';;
+  guest) printf '{"exitcode":0,"exited":true}\n';;
+  create) : >"$STUB_CREATED";;
+  importdisk) [[ ${STUB_IMPORT_FAIL:-0} == 1 ]] && exit 33; exit 0;;
+esac
+EOF
 chmod +x "$TMP/bin"/*
 printf 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITest operator\n' >"$TMP/id.pub"
-printf 'x' >"$TMP/image"; printf '%0128d  image\n' 0 >"$TMP/image.sha512"; : >"$TMP/leases"; : >"$TMP/qm.log"
-assert_fails env PATH="$TMP/bin:$PATH" STUB_QM_LOG="$TMP/qm.log" STUB_CREATED="$TMP/created" \
-  SSH_PUBLIC_KEY="$TMP/id.pub" STATIC_IP_CIDR=192.0.2.10/24 GATEWAY=192.0.2.1 DNS_SERVER=192.0.2.53 \
-  ADMIN_CIDR=192.0.2.0/24 LAN_CIDR=192.0.2.0/24 VPN_CIDR=198.51.100.0/24 DHCP_LEASE_FILE="$TMP/leases" \
-  DEBIAN_IMAGE="$TMP/image" DEBIAN_CHECKSUM_FILE="$TMP/image.sha512" "$SCRIPT" --preflight-only
-grep -q 'occupied' "$TMP/out" || fail "occupied VMID was not reported"
-test ! -e "$TMP/created" || fail "qm create ran after collision"
-grep -q -- '--preflight-only' "$SCRIPT" || fail "missing read-only preflight mode"
-grep -q 'qm status' "$SCRIPT" || fail "missing VMID collision check"
-grep -q 'qm destroy' "$SCRIPT" || fail "missing partial-creation cleanup"
-grep -q 'sha512sum' "$SCRIPT" || fail "missing checksum validation"
-grep -q 'curl --fail' "$SCRIPT" || fail "missing verified image download"
-grep -q 'cloud-init status --wait' "$SCRIPT" || fail "missing cloud-init boot validation"
-grep -q 'ADMIN_CIDR' "$SCRIPT" || fail "cloud-init network placeholders are not rendered"
-grep -q 'docker.io' "$ROOT/ops/provision/protec-gestion-cloud-init.yaml" || fail "Docker package source is missing"
-grep -q -- '--net0.*bridge=.*firewall=1' "$SCRIPT" || fail "VM NIC bridge/firewall is missing"
-grep -q 'SSH_AUTHORIZED_KEY' "$SCRIPT" || fail "public key is not rendered into cicustom"
-grep -q 'exitcode' "$SCRIPT" || fail "guest exec JSON exitcode is not checked"
-grep -q 'ip route' "$SCRIPT" || fail "guest route is not verified"
-grep -q 'timedatectl' "$SCRIPT" || fail "NTP is not verified"
-grep -q 'ssh-keyscan' "$SCRIPT" || fail "SSH fingerprint is not verified"
-grep -q 'StrictHostKeyChecking=yes' "$SCRIPT" || fail "SSH access is not reverified after reboot"
-! grep -q 'StrictHostKeyChecking=accept-new' "$SCRIPT" || fail "SSH trust-on-first-use is forbidden"
-grep -q 'SSH_HOST_FINGERPRINT is required' "$SCRIPT" || fail "explicit SSH fingerprint is not required"
-grep -q 'DOCKER-USER' "$ROOT/ops/provision/protec-gestion-cloud-init.yaml" || fail "Docker-published port is not filtered"
-grep -q 'DHCP_LEASE_FILE proof is required' "$SCRIPT" || fail "DHCP evidence is optional"
-grep -q 'pvesh' "$SCRIPT" || fail "node/firewall/backup preflight is incomplete"
-grep -q 'ip neigh' "$SCRIPT" || fail "ARP evidence is missing"
-! grep -q 'flush ruleset' "$ROOT/ops/provision/protec-gestion-cloud-init.yaml" || fail "cloud-init flushes Docker firewall rules"
+printf 'x' >"$TMP/image"; printf '%0128d  image\n' 0 >"$TMP/image.sha512"
+: >"$TMP/leases"; printf 'reserved 192.0.2.10 protec-gestion\n' >"$TMP/dhcp-reservations"
+
+base_env=(env PATH="$TMP/bin:$PATH" STUB_QM_LOG="$TMP/qm.log" STUB_CREATED="$TMP/created"
+  SSH_PUBLIC_KEY="$TMP/id.pub" STATIC_IP_CIDR=192.0.2.10/24 GATEWAY=192.0.2.1 DNS_SERVER=192.0.2.53
+  ADMIN_CIDR=192.0.2.0/24 LAN_CIDR=192.0.2.0/24 VPN_CIDR=198.51.100.0/24
+  DHCP_LEASE_FILE="$TMP/leases" DHCP_RESERVATION_FILE="$TMP/dhcp-reservations"
+  DEBIAN_IMAGE="$TMP/image" DEBIAN_CHECKSUM_FILE="$TMP/image.sha512" PROXMOX_SNIPPET_DIR="$TMP/snippets")
+
+: >"$TMP/qm.log"
+assert_fails "${base_env[@]}" STUB_VM_EXISTS=1 "$SCRIPT" --preflight-only
+assert_contains 'occupied' "$TMP/out"
+assert_not_logged '^create '
+
+: >"$TMP/qm.log"
+assert_fails "${base_env[@]}" STUB_LIVE_GATEWAY=192.0.2.254 STUB_VM_EXISTS=0 "$SCRIPT" --preflight-only
+assert_contains 'gateway' "$TMP/out"
+assert_fails env "${base_env[@]:1}" DHCP_RESERVATION_FILE=/missing STUB_VM_EXISTS=0 "$SCRIPT" --preflight-only
+assert_contains 'DHCP' "$TMP/out"
+
+# Independent name/IP/DNS/resource/checksum gates all run before creation.
+for scenario in name ip dns ram storage checksum; do
+  : >"$TMP/qm.log"; rm -f "$TMP/created"
+  case $scenario in
+    name) extra=(STUB_NAME_COLLISION=1); expected='VM name';;
+    ip) extra=(STUB_PING_COLLISION=1); expected='answers ping';;
+    dns) extra=(STUB_DNS_COLLISION=1); expected='DNS name occupied';;
+    ram) extra=(STUB_FREE_MEM=1); expected='insufficient node RAM';;
+    storage) extra=(STUB_STORAGE_AVAIL=1); expected='insufficient storage';;
+    checksum) extra=(STUB_CHECKSUM_FAIL=1); expected='checksum';;
+  esac
+  assert_fails "${base_env[@]}" STUB_VM_EXISTS=0 "${extra[@]}" "$SCRIPT" --preflight-only
+  assert_contains "$expected" "$TMP/out"
+  assert_not_logged '^create '
+done
+
+# A failure after qm create cleans up only the VM created by this invocation.
+: >"$TMP/qm.log"; rm -f "$TMP/created"
+assert_fails "${base_env[@]}" STUB_VM_EXISTS=0 STUB_IMPORT_FAIL=1 "$SCRIPT"
+grep -Eq '^destroy 115 --purge 1$' "$TMP/qm.log" || fail 'partial created VM was not destroyed'
+
+: >"$TMP/qm.log"; rm -f "$TMP/created"
+if ! "${base_env[@]}" STUB_VM_EXISTS=0 "$SCRIPT" >"$TMP/out" 2>&1; then
+  sed -n '1,160p' "$TMP/out" >&2
+  sed -n '1,160p' "$TMP/qm.log" >&2
+  fail 'phase 1 provisioning failed'
+fi
+assert_contains 'awaiting_fingerprint_approval' "$TMP/out"
+assert_contains 'SHA256:approved' "$TMP/out"
+grep -Eq '^start 115$' "$TMP/qm.log" || fail 'VM was not started'
+grep -Eq '^shutdown 115 --timeout 60$' "$TMP/qm.log" || fail 'VM was not shut down cleanly for approval'
+assert_not_logged '^destroy '
+
+: >"$TMP/qm.log"
+"${base_env[@]}" STUB_VM_EXISTS=1 "$SCRIPT" --verify-fingerprint '256 SHA256:approved protec-gestion (ED25519)' >"$TMP/out" 2>&1
+assert_contains '"status":"verified"' "$TMP/out"
+assert_not_logged '^create '
+assert_not_logged '^destroy '
+
+: >"$TMP/qm.log"
+assert_fails "${base_env[@]}" STUB_VM_EXISTS=1 "$SCRIPT" --verify-fingerprint '256 SHA256:wrong protec-gestion (ED25519)'
+assert_contains 'fingerprint mismatch' "$TMP/out"
+assert_not_logged '^destroy '
+
 printf 'test-create-vm: ok\n'

@@ -4,12 +4,19 @@ revision=${PROTEC_GIT_REVISION:-}; target=${PROTEC_SSH_TARGET:-}; remote_root=${
 die() { printf 'deploy: %s\n' "$*" >&2; exit 1; }
 [[ $revision =~ ^[0-9a-f]{40}$ ]] || die 'PROTEC_GIT_REVISION must be a lowercase 40-hex commit'
 [[ $target =~ ^[A-Za-z0-9_.@:-]+$ ]] || die 'PROTEC_SSH_TARGET is required and must not contain shell metacharacters'
-[[ $remote_root =~ ^/opt/[A-Za-z0-9._/-]+$ && $remote_root != *..* ]] || die 'PROTEC_REMOTE_ROOT must be a safe absolute /opt path'
+if [[ $remote_root =~ ^/opt/[A-Za-z0-9._/-]+$ && $remote_root != *..* ]]; then :
+elif [[ ${PROTEC_TESTING:-0} == 1 && $remote_root =~ ^/(private/)?(tmp|var/folders)/[A-Za-z0-9._/-]+$ && $remote_root != *..* ]]; then :
+else die 'PROTEC_REMOTE_ROOT must be a safe absolute /opt path'
+fi
 ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -- "$target" true 2>/dev/null || die 'SSH host key is unknown or the target is unavailable'
 ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -- "$target" bash -s -- "$revision" "$remote_root" <<'REMOTE'
 set -Eeuo pipefail
 revision=$1; root=$2
-[[ $revision =~ ^[0-9a-f]{40}$ && $root =~ ^/opt/[A-Za-z0-9._/-]+$ && $root != *..* ]] || exit 2
+[[ $revision =~ ^[0-9a-f]{40}$ ]] || exit 2
+if [[ $root =~ ^/opt/[A-Za-z0-9._/-]+$ && $root != *..* ]]; then :
+elif [[ ${PROTEC_TESTING:-0} == 1 && $root =~ ^/(private/)?(tmp|var/folders)/[A-Za-z0-9._/-]+$ && $root != *..* ]]; then :
+else exit 2
+fi
 export COMPOSE_PROJECT_NAME=protec-gestion APP_IMAGE_TAG="$revision"
 repo=${PROTEC_GIT_URL:-https://github.com/dedetc51/protec-gestion.git}; release="$root/releases/$revision"; shared_env="$root/shared/.env"; admin_env=${PROTEC_INITIAL_ADMIN_ENV_FILE:-$root/shared/initial-admin.env}
 previous=''; dump='none'; maintenance=0

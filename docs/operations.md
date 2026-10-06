@@ -34,8 +34,12 @@ Exercice de restauration : créer une base PostgreSQL jetable, vérifier
 temporairement Laravel vers cette base, exécuter `php artisan migrate:status`
 et comparer la présence des tables requises (`users`, `sessions`, `jobs`,
 `audit_events`). Supprimer uniquement cette base jetable à la fin.
-L'exercice reproductible est `ops/backup/restore-drill.sh <dump.sql.gz>`; son
-trap supprime uniquement la base `protec_restore_drill`.
+L'exercice reproductible est
+`BACKUP_DIR=/opt/protec-gestion/shared/backups ops/backup/restore-drill.sh /opt/protec-gestion/shared/backups/<dump.sql.gz>`.
+Le script canonise les deux chemins et refuse toute archive hors de
+`BACKUP_DIR`, y compris via un lien symbolique. Son trap supprime uniquement la
+base jetable au nom unique
+`protec_restore_drill_<YYYYMMDDHHMMSS>_<pid>` créée par cette exécution.
 
 ## Provisionnement VM
 
@@ -52,10 +56,22 @@ Les deux URL doivent rester sous `https://cloud.debian.org/images/cloud/trixie/`
 et le fichier SHA512 doit contenir exactement une entrée pour le nom de l'image.
 Le rapport de préflight doit inclure quorum/nœud, RAM, espace stockage, bridge,
 VMID/nom, DHCP/ARP/ICMP/DNS, VPN, pare-feu et stockage de sauvegarde.
-`DHCP_LEASE_FILE` doit pointer vers une preuve de baux lisible et l'adresse ne
-doit pas y figurer. `SSH_HOST_FINGERPRINT` doit contenir la ligne exacte
-produite par `ssh-keygen -lf` pour la clé hôte attendue ; aucune acceptation au
-premier contact n'est effectuée.
-Le premier démarrage peut uniquement afficher l'empreinte observée et conserver
-la VM arrêtée pour contrôle opérateur. La reprise doit fournir explicitement
-`SSH_HOST_FINGERPRINT`; aucune clé observée n'est acceptée automatiquement.
+`DHCP_LEASE_FILE` doit pointer vers une preuve de baux lisible dans laquelle
+l'adresse est absente. `DHCP_RESERVATION_FILE` doit pointer vers une seconde
+preuve lisible montrant cette adresse réservée ou exclue de la plage dynamique.
+Le préflight compare la passerelle par défaut réellement active à `GATEWAY`,
+vérifie la route vers `DNS_SERVER`, puis effectue une requête A directement
+auprès de ce résolveur avec `dig @DNS_SERVER`; une simple résolution via le
+résolveur local ne suffit pas.
+
+Le provisionnement se fait obligatoirement en deux commandes. La première,
+`ops/provision/create-vm.sh`, crée et démarre la VM, attend cloud-init, capture
+l'empreinte avec `ssh-keyscan`/`ssh-keygen`, arrête proprement la VM, imprime un
+résumé JSON avec l'état `awaiting_fingerprint_approval` et conserve la VM. Après
+vérification humaine de l'empreinte par un canal distinct, reprendre exactement
+la VM existante avec
+`ops/provision/create-vm.sh --verify-fingerprint '<ligne ssh-keygen -lf exacte>'`.
+La reprise vérifie d'abord VMID, nom, tag de propriété et bridge, compare
+l'empreinte avant toute connexion SSH, puis exécute les validations invité et
+le reboot. Une empreinte différente arrête la reprise sans supprimer la VM.
+`StrictHostKeyChecking=accept-new` n'est jamais utilisé.
