@@ -191,6 +191,7 @@ class ScopedPermissionResolverTest extends TestCase
         $role->permissions()->attach($permission);
         $user = User::factory()->create();
         RoleAssignment::factory()->for($user)->for($role)->branch($branch)->create();
+        $this->membership($user, $branch);
 
         $this->assertFalse(app(ScopedPermissionResolver::class)->allows(
             $user,

@@ -23,3 +23,11 @@ Review-fix verification:
 - Focused resolver suite: 12 tests, 30 assertions passed.
 - Full suite: 117 tests, 537 assertions passed.
 - Pint passed.
+
+## Technical non-delegation regression follow-up
+
+Added an active membership for the association role's exact branch to the technical-permission rejection test. Temporarily removed the resolver's non-delegability guard; the targeted test then failed because the branch role could grant `technical.manage`. Restored the guard and confirmed the test passes.
+
+- Focused resolver suite: 12 tests, 30 assertions passed.
+- Full suite: 117 tests, 537 assertions passed.
+- Pint and `git diff --check`: passed.
