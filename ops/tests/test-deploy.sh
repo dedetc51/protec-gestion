@@ -40,6 +40,7 @@ case "$*" in
   *'artisan migrate --force'*) [[ ${STUB_DEPLOY_FAIL:-} == migration ]] && exit 31;;
   *'pg_isready'*) exit 0;;
   *'SELECT EXISTS (SELECT 1 FROM users'*) [[ ${STUB_ADMIN_EXISTS:-1} == 1 ]] && printf 't\n' || printf 'f\n';;
+  *'up -d --remove-orphans'*) [[ ${STUB_CONSUME_STDIN:-0} == 1 ]] && cat >/dev/null;;
 esac
 exit 0
 EOF
@@ -55,6 +56,16 @@ EOF
 cat >"$TMP/deploy-bin/stat" <<'EOF'
 #!/bin/sh
 printf '600\n'
+EOF
+cat >"$TMP/deploy-bin/mv" <<'EOF'
+#!/usr/bin/env bash
+if [[ ${1:-} == -Tf ]]; then
+  source=$2 destination=$3
+  rm -f -- "$destination"
+  /bin/mv "$source" "$destination"
+else
+  /bin/mv "$@"
+fi
 EOF
 chmod +x "$TMP/deploy-bin"/*
 
@@ -164,6 +175,11 @@ setup_deploy_case
 run_failed_deploy health
 assert_contains 'artisan migrate --force' "$TMP/docker.log"
 assert_contains 'up -d --remove-orphans' "$TMP/docker.log"
+
+setup_deploy_case
+env PATH="$TMP/deploy-bin:$PATH" PROTEC_TESTING=1 PROTEC_GIT_REVISION="$revision" PROTEC_SSH_TARGET=host PROTEC_REMOTE_ROOT="$DEPLOY_ROOT" STUB_CONSUME_STDIN=1 STUB_DOCKER_LOG="$TMP/docker.log" STUB_STAGE_LOG="$TMP/stage.log" "$DEPLOY"
+[[ $(readlink "$DEPLOY_ROOT/current") == "$DEPLOY_ROOT/releases/$revision" ]] || fail 'deployment did not finalize when Docker consumed standard input'
+assert_contains "$revision" "$DEPLOY_ROOT/DEPLOYED"
 
 # Exercise database rollback phase recovery with a Docker stub that records SQL.
 mkdir -p "$TMP/rollback-bin" "$ROLLBACK_ROOT/shared/backups" "$ROLLBACK_ROOT/releases/$revision" "$ROLLBACK_ROOT/releases/$previous"

@@ -25,7 +25,7 @@ recover() {
   rc=$?; trap - ERR
   printf 'Deployment failed; retained release: %s; retained dump: %s\n' "$release" "$dump" >&2
   if [[ -n $previous && -d $previous ]]; then
-    export APP_IMAGE_TAG=${previous##*/}; cd "$previous"; docker compose up -d --remove-orphans || true
+    export APP_IMAGE_TAG=${previous##*/}; cd "$previous"; docker compose up -d --remove-orphans </dev/null || true
     ((maintenance)) && docker compose exec -T app php artisan up || true
     health "$shared_env" || printf 'WARNING: previous release HTTP verification failed\n' >&2
     printf 'Rollback: %s/ops/deploy/rollback.sh %s\n' "$previous" "${previous##*/}" >&2
@@ -63,7 +63,7 @@ if [[ ! -d $release/.git ]]; then git init -q "$release"; git -C "$release" remo
 ln -sfn "$shared_env" "$release/.env"; cd "$release"; docker compose config --quiet; docker compose build
 trap recover ERR
 if [[ -n $previous ]]; then dump=$(BACKUP_ENV_FILE="$shared_env" "$release/ops/backup/postgres-backup.sh"); docker compose exec -T app php artisan down; maintenance=1; fi
-docker compose run --rm app php artisan migrate --force; docker compose up -d --remove-orphans
+docker compose run --rm -T app php artisan migrate --force </dev/null; docker compose up -d --remove-orphans </dev/null
 for _ in {1..30}; do db_user=$(sed -n 's/^DB_USERNAME=//p' .env); docker compose exec -T postgres pg_isready -U "$db_user" >/dev/null 2>&1 && health .env && ready=1 && break; sleep 2; done
 [[ ${ready:-0} == 1 ]] || { printf 'Health check failed\n' >&2; false; }
 if [[ -n $admin_email ]]; then set +x; docker compose exec -T -e INITIAL_ADMIN_NAME="$admin_name" -e INITIAL_ADMIN_EMAIL="$admin_email" -e INITIAL_ADMIN_PASSWORD="$admin_password" app php artisan protec:ensure-initial-admin; rm -f -- "$admin_env"; unset admin_name admin_email admin_password; fi
