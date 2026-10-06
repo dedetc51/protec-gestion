@@ -133,8 +133,8 @@ class OrganizationSchemaTest extends TestCase
     {
         return [
             'department name' => [Department::class, 'name', 'Loiret'],
-            'role slug' => [Role::class, 'slug', 'volunteer'],
-            'permission key' => [Permission::class, 'key', 'members.view'],
+            'role slug' => [Role::class, 'slug', 'custom-role'],
+            'permission key' => [Permission::class, 'key', 'custom.view'],
         ];
     }
 
