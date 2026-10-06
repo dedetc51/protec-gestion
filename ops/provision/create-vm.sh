@@ -95,7 +95,7 @@ preflight() {
   pvecm status | grep -q 'Quorate:.*Yes' || die 'cluster is not quorate'
   node_json=$(pvesh get "/nodes/$NODE/status" --output-format json) || die 'target node unavailable'
   jq -e 'type=="object" and (.memory|type=="object")' <<<"$node_json" >/dev/null || die 'invalid node JSON'
-  free_mem=$(jq -r '.memory.free // (.memory.total-.memory.used) // 0' <<<"$node_json")
+  free_mem=$(jq -r '.memory.available // (.memory.total-.memory.used) // .memory.free // 0' <<<"$node_json")
   [[ $free_mem -ge 4294967296 ]] || die 'insufficient node RAM'
   if ((allow_existing)); then
     validate_expected_vm

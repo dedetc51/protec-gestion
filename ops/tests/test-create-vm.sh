@@ -18,14 +18,20 @@ printf 'Quorate: Yes\n'
 EOF
 cat >"$TMP/bin/pvesh" <<'EOF'
 #!/bin/sh
-case "$*" in *status*) printf '{"memory":{"free":%s}}\n' "${STUB_FREE_MEM:-8589934592}";; *firewall*) printf '{}\n';; esac
+case "$*" in *status*) printf '{"memory":{"free":%s,"available":%s}}\n' "${STUB_FREE_MEM:-8589934592}" "${STUB_AVAILABLE_MEM:-8589934592}";; *firewall*) printf '{}\n';; esac
 EOF
 cat >"$TMP/bin/jq" <<'EOF'
 #!/usr/bin/env bash
 [[ ${STUB_JQ_UNAVAILABLE:-0} == 1 ]] && exit 127
 [[ ${1:-} == --version ]] && { printf 'jq-1.7\n'; exit 0; }
 case " $* " in
-  *' -r '*) cat >/dev/null; printf '%s\n' "${STUB_FREE_MEM:-8589934592}";;
+  *' -r '*)
+    cat >/dev/null
+    case "$*" in
+      *memory.available*) printf '%s\n' "${STUB_AVAILABLE_MEM:-8589934592}";;
+      *) printf '%s\n' "${STUB_FREE_MEM:-8589934592}";;
+    esac
+    ;;
   *' -n '*)
     status=''; fingerprint=''
     while [ "$#" -gt 0 ]; do
@@ -165,6 +171,16 @@ assert_fails "${base_env[@]}" STUB_VM_EXISTS=0 STUB_JQ_UNAVAILABLE=1 "$SCRIPT" -
 assert_contains 'jq' "$TMP/out"
 assert_not_logged '^create '
 
+# Linux may report little completely free RAM while reclaimable/cache-backed
+# memory remains available. VM capacity must use memory.available first.
+: >"$TMP/qm.log"
+if ! "${base_env[@]}" STUB_VM_EXISTS=0 STUB_FREE_MEM=1 STUB_AVAILABLE_MEM=8589934592 "$SCRIPT" --preflight-only >"$TMP/out" 2>&1; then
+  sed -n '1,160p' "$TMP/out" >&2
+  fail 'preflight rejected sufficient available node memory'
+fi
+assert_contains 'preflight=ok' "$TMP/out"
+assert_not_logged '^create '
+
 # Independent name/IP/DNS/resource/checksum gates all run before creation.
 for scenario in name ip dns ram storage checksum; do
   : >"$TMP/qm.log"; rm -f "$TMP/created"
@@ -172,7 +188,7 @@ for scenario in name ip dns ram storage checksum; do
     name) extra=(STUB_NAME_COLLISION=1); expected='VM name';;
     ip) extra=(STUB_PING_COLLISION=1); expected='answers ping';;
     dns) extra=(STUB_DNS_COLLISION=1); expected='DNS name occupied';;
-    ram) extra=(STUB_FREE_MEM=1); expected='insufficient node RAM';;
+    ram) extra=(STUB_FREE_MEM=1 STUB_AVAILABLE_MEM=1); expected='insufficient node RAM';;
     storage) extra=(STUB_STORAGE_AVAIL_KIB=1); expected='insufficient storage';;
     checksum) extra=(STUB_CHECKSUM_FAIL=1); expected='checksum';;
   esac
