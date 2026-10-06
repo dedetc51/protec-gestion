@@ -25,6 +25,13 @@ cat >"$TMP/bin/jq" <<'EOF'
 [[ ${STUB_JQ_UNAVAILABLE:-0} == 1 ]] && exit 127
 [[ ${1:-} == --version ]] && { printf 'jq-1.7\n'; exit 0; }
 case " $* " in
+  *' -r '*out-data*)
+    input=$(cat)
+    case "$input" in
+      *'status: error'*) printf 'status: error\n';;
+      *'status: running'*) printf 'status: running\n';;
+    esac
+    ;;
   *' -r '*)
     cat >/dev/null
     case "$*" in
@@ -124,6 +131,14 @@ case "$1" in
         exit 0
       fi
     fi
+    if [[ $* == *'cloud-init status --long'* ]]; then
+      if [[ ${STUB_CLOUD_INIT_ERROR:-0} == 1 ]]; then
+        printf '{"exitcode":0,"exited":true,"out-data":"status: error\\n"}\n'
+      else
+        printf '{"exitcode":0,"exited":true,"out-data":"status: running\\n"}\n'
+      fi
+      exit 0
+    fi
     if [[ $* == *'systemctl is-active nftables docker'* ]]; then
       required=(
         'systemctl is-active --quiet protec-docker-firewall.service'
@@ -201,6 +216,14 @@ fi
 [[ $(<"$TMP/guest-count") -eq 180 ]] || fail 'cloud-init polling did not honor the 15-minute budget'
 assert_contains 'awaiting_fingerprint_approval' "$TMP/out"
 
+# A terminal cloud-init error must abort immediately instead of burning the
+# entire timeout budget while a broken guest can never become ready.
+: >"$TMP/qm.log"; rm -f "$TMP/created" "$TMP/guest-count"
+assert_fails "${base_env[@]}" STUB_VM_EXISTS=0 STUB_CLOUD_INIT_READY_AFTER=180 STUB_CLOUD_INIT_ERROR=1 "$SCRIPT"
+assert_contains 'cloud-init reported error' "$TMP/out"
+[[ $(<"$TMP/guest-count") -eq 1 ]] || fail 'terminal cloud-init error did not fail fast'
+grep -Eq '^destroy 115 --purge 1$' "$TMP/qm.log" || fail 'failed cloud-init VM was not cleaned up'
+
 # Invalid timeout configuration is rejected before VM creation.
 : >"$TMP/qm.log"; rm -f "$TMP/created" "$TMP/guest-count"
 assert_fails "${base_env[@]}" STUB_VM_EXISTS=0 CLOUD_INIT_TIMEOUT_SECONDS=0 "$SCRIPT"
@@ -245,6 +268,16 @@ for position in 1 2 3 4; do
   grep -Eq "^-I DOCKER-USER $position " "$TMP/iptables.log" || fail "firewall rule $position is not inserted before RETURN"
 done
 ! grep -Eq '^-A DOCKER-USER ' "$TMP/iptables.log" || fail 'firewall helper appends a rule after Docker RETURN'
+
+# Debian 13 ships Compose v2 through docker-compose; the obsolete package name
+# would make cloud-init fail before the guest can be provisioned.
+packages=$(awk '
+  /^packages:/ {wanted=1; next}
+  wanted && /^[^ ]/ {exit}
+  wanted && /^  - / {sub(/^  - /, ""); print}
+' "$ROOT/ops/provision/protec-gestion-cloud-init.yaml")
+grep -Fxq 'docker-compose' <<<"$packages" || fail 'Debian docker-compose package is missing'
+! grep -Fxq 'docker-compose-v2' <<<"$packages" || fail 'obsolete docker-compose-v2 package remains configured'
 
 # A failure after qm create cleans up only the VM created by this invocation.
 : >"$TMP/qm.log"; rm -f "$TMP/created"

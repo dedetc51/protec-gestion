@@ -140,10 +140,13 @@ guest_exec() {
 }
 
 wait_cloud_init() {
-  local attempt attempts
+  local attempt attempts result status
   attempts=$(((CLOUD_INIT_TIMEOUT_SECONDS + 4) / 5))
   for ((attempt = 1; attempt <= attempts; attempt++)); do
     guest_exec cloud-init status --wait && return 0
+    result=$(qm guest exec "$VMID" -- cloud-init status --long 2>/dev/null) || result=''
+    status=$(jq -r '."out-data" // empty' <<<"$result" 2>/dev/null) || status=''
+    grep -Eq '^status:[[:space:]]*error([[:space:]]|$)' <<<"$status" && die 'cloud-init reported error'
     sleep 5
   done
   return 1
