@@ -13,6 +13,7 @@ x-app: &app
 services:
   app:
     <<: *app
+    networks: [backend, egress]
   worker:
     <<: *app
     command: ["php", "artisan", "queue:work", "--tries=3", "--timeout=90"]
@@ -45,6 +46,7 @@ services:
     healthcheck: {test: [CMD-SHELL, "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"], interval: 10s, timeout: 5s, retries: 5}
 networks:
   frontend: {}
+  egress: {}
   backend: {internal: true}
 volumes:
   postgres-data: {}

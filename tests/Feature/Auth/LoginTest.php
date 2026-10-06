@@ -3,7 +3,9 @@
 namespace Tests\Feature\Auth;
 
 use App\Models\User;
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Tests\TestCase;
 
@@ -64,5 +66,12 @@ class LoginTest extends TestCase
     {
         $user = User::factory()->create(['email' => ' Mixed@Example.TEST ']);
         $this->assertSame('mixed@example.test', $user->email);
+    }
+
+    public function test_database_rejects_case_insensitive_email_duplicates_even_without_model(): void
+    {
+        User::factory()->create(['email' => 'unique@example.test']);
+        $this->expectException(QueryException::class);
+        DB::table('users')->insert(['name' => 'Collision', 'email' => 'UNIQUE@EXAMPLE.TEST', 'password' => Hash::make('Password-42!'), 'created_at' => now(), 'updated_at' => now()]);
     }
 }

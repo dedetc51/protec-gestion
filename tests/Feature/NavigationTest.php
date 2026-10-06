@@ -26,4 +26,13 @@ class NavigationTest extends TestCase
         $member = User::factory()->create(['role' => 'member', 'must_change_password' => false]);
         $this->actingAs($member)->get('/admin')->assertForbidden();
     }
+
+    public function test_mobile_menu_supports_focus_on_open_and_escape_focus_return(): void
+    {
+        $script = file_get_contents(resource_path('js/app.js'));
+
+        $this->assertStringContainsString("sidebar.querySelector('a')?.focus()", $script);
+        $this->assertStringContainsString("event.key==='Escape'", $script);
+        $this->assertStringContainsString('toggle.focus()', $script);
+    }
 }
