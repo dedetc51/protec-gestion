@@ -33,6 +33,7 @@ jobs:
       - run: php artisan migrate --force
       - run: php artisan test
       - run: vendor/bin/pint --test
+      - run: for test in ops/tests/*.sh; do bash "$test"; done
       - run: cp .env.example .env
       - run: docker compose config --quiet
       - run: '! git grep -En "(BEGIN (RSA|OPENSSH) PRIVATE KEY|APP_KEY=base64:[A-Za-z0-9+/]{20,}|INITIAL_ADMIN_PASSWORD=.+)" -- ":(exclude).env.example" ":(exclude).github/workflows/ci.yml"'

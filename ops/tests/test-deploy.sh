@@ -39,6 +39,7 @@ printf '%s\n' "$*" >>"$STUB_DOCKER_LOG"
 case "$*" in
   *'artisan migrate --force'*) [[ ${STUB_DEPLOY_FAIL:-} == migration ]] && exit 31;;
   *'pg_isready'*) exit 0;;
+  *'SELECT EXISTS (SELECT 1 FROM users'*) [[ ${STUB_ADMIN_EXISTS:-1} == 1 ]] && printf 't\n' || printf 'f\n';;
 esac
 exit 0
 EOF
@@ -66,6 +67,8 @@ setup_deploy_case() {
   printf 'services: {}\n' >"$DEPLOY_ROOT/releases/$previous/compose.yaml"
   cat >"$DEPLOY_ROOT/shared/.env" <<'EOF'
 APP_KEY=base64:test
+APP_ENV=production
+APP_DEBUG=false
 DB_DATABASE=protec_gestion
 DB_USERNAME=protec_gestion
 DB_PASSWORD=test-only
@@ -100,6 +103,8 @@ run_gate_failure() {
   assert_contains "$expected" "$TMP/out"
   [[ $(readlink "$DEPLOY_ROOT/current") == "$DEPLOY_ROOT/releases/$previous" ]] || fail "current switched after gate failure: $expected"
   ! grep -Fq 'artisan migrate --force' "$TMP/docker.log" || fail "migration ran after gate failure: $expected"
+  ! grep -Fq 'compose build' "$TMP/docker.log" || fail "image build ran after gate failure: $expected"
+  ! grep -Fq 'up -d --remove-orphans' "$TMP/docker.log" || fail "services mutated after gate failure: $expected"
 }
 
 setup_deploy_case
@@ -115,6 +120,27 @@ run_gate_failure 'Dirty or mismatched checkout' STUB_GIT_DIRTY=1
 
 setup_deploy_case
 run_gate_failure 'Dirty or mismatched checkout' STUB_GIT_HEAD=ffffffffffffffffffffffffffffffffffffffff
+
+setup_deploy_case
+sed -i.bak 's/^APP_ENV=.*/APP_ENV=local/' "$DEPLOY_ROOT/shared/.env"; rm -f "$DEPLOY_ROOT/shared/.env.bak"
+run_gate_failure 'APP_ENV must be production'
+
+setup_deploy_case
+sed -i.bak 's/^APP_DEBUG=.*/APP_DEBUG=true/' "$DEPLOY_ROOT/shared/.env"; rm -f "$DEPLOY_ROOT/shared/.env.bak"
+run_gate_failure 'APP_DEBUG must be false'
+
+setup_deploy_case
+run_gate_failure 'initial-admin.env may be omitted only when an active administrator exists' STUB_ADMIN_EXISTS=0
+assert_contains 'SELECT EXISTS (SELECT 1 FROM users' "$TMP/docker.log"
+! grep -Fq 'INITIAL_ADMIN_' "$TMP/docker.log" || fail 'administrator existence check exposed bootstrap secrets'
+
+setup_deploy_case
+rm -f "$DEPLOY_ROOT/current"
+: >"$TMP/docker.log"
+assert_fails env PATH="$TMP/deploy-bin:$PATH" PROTEC_TESTING=1 PROTEC_GIT_REVISION="$revision" PROTEC_SSH_TARGET=host PROTEC_REMOTE_ROOT="$DEPLOY_ROOT" STUB_DOCKER_LOG="$TMP/docker.log" STUB_STAGE_LOG="$TMP/stage.log" "$DEPLOY"
+assert_contains 'initial-admin.env is required for the first deployment' "$TMP/out"
+test ! -e "$DEPLOY_ROOT/current" || fail 'first deployment switched current without an administrator bootstrap'
+! grep -Fq 'artisan migrate --force' "$TMP/docker.log" || fail 'first deployment migrated without an administrator bootstrap'
 
 setup_deploy_case
 run_failed_deploy dump
@@ -148,6 +174,8 @@ if [[ $* == *' psql '*postgres* ]]; then
   if [[ ${STUB_ROLLBACK_FAIL:-} == rename && $sql == *'ALTER DATABASE "protec_gestion" RENAME TO "protec_gestion_previous_'* ]]; then exit 40; fi
   if [[ ${STUB_ROLLBACK_FAIL:-} == swap && $sql == *'ALTER DATABASE "protec_gestion_restore_'*' RENAME TO "protec_gestion"'* ]]; then exit 41; fi
 fi
+if [[ ${STUB_ROLLBACK_FAIL:-} == createdb && $* == *' createdb '* ]]; then exit 38; fi
+if [[ ${STUB_ROLLBACK_FAIL:-} == import && $* == *' psql '*protec_gestion_restore_* ]]; then cat >/dev/null; exit 39; fi
 exit 0
 EOF
 cat >"$TMP/rollback-bin/curl" <<'EOF'
@@ -173,6 +201,14 @@ assert_contains 'ALTER DATABASE "protec_gestion" RENAME TO "protec_gestion_previ
 assert_contains 'ALTER DATABASE "protec_gestion_previous_' "$TMP/rollback.log"
 assert_contains 'RENAME TO "protec_gestion"' "$TMP/rollback.log"
 
+run_failed_rollback createdb
+assert_contains 'dropdb -U protec_gestion --if-exists protec_gestion_restore_' "$TMP/rollback.log"
+assert_contains 'up -d --remove-orphans' "$TMP/rollback.log"
+
+run_failed_rollback import
+assert_contains 'dropdb -U protec_gestion --if-exists protec_gestion_restore_' "$TMP/rollback.log"
+assert_contains 'up -d --remove-orphans' "$TMP/rollback.log"
+
 run_failed_rollback rename
 assert_contains 'ALTER DATABASE "protec_gestion_previous_' "$TMP/rollback.log"
 assert_contains 'RENAME TO "protec_gestion"' "$TMP/rollback.log"
@@ -180,5 +216,7 @@ assert_contains 'RENAME TO "protec_gestion"' "$TMP/rollback.log"
 run_failed_rollback health
 assert_contains 'ALTER DATABASE "protec_gestion" RENAME TO "protec_gestion_failed_' "$TMP/rollback.log"
 assert_contains 'ALTER DATABASE "protec_gestion_previous_' "$TMP/rollback.log"
+
+grep -Fq 'for test in ops/tests/*.sh' "$ROOT/.github/workflows/ci.yml" || fail 'CI does not execute every ops shell test'
 
 printf 'test-deploy: ok\n'

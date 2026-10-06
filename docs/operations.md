@@ -8,13 +8,18 @@ Depuis un poste autorisé sur le LAN ou le VPN, exporter `PROTEC_SSH_TARGET` et
 `0600`, `/opt/protec-gestion/shared/.env`. Le script conserve chaque release,
 effectue une sauvegarde avant migration et ne bascule le lien `current`
 qu'après migrations et contrôles de santé.
+Le déploiement refuse toute mutation si ce fichier ne définit pas exactement
+`APP_ENV=production` et `APP_DEBUG=false`.
 La production doit définir `HTTP_BIND_IP` sur l'adresse privée de la VM et
 `HTTP_PORT=8080`; ce même port est injecté dans le pare-feu invité. Chaque
 release exporte `APP_IMAGE_TAG` avec son SHA exact, y compris lors d'un rollback.
 Les secrets du premier administrateur ne vont jamais dans `.env`. Les placer
 ensemble dans `/opt/protec-gestion/shared/initial-admin.env`, mode `0600` ; le
 déploiement les injecte uniquement dans la commande bootstrap puis supprime ce
-fichier après réussite.
+fichier après réussite. Ce fichier est obligatoire au premier déploiement. Aux
+déploiements suivants, il peut être absent uniquement si une lecture directe de
+la base confirme qu'un administrateur actif existe ; ce contrôle ne charge ni
+n'affiche aucun secret de bootstrap.
 
 ## Retour arrière
 
@@ -77,5 +82,7 @@ le reboot. Après ce reboot, le statut actif de
 `protec-docker-firewall.service` et les quatre règles effectives de
 `DOCKER-USER` sont revérifiés : connexions établies, accès au port conteneur 80
 depuis le LAN, accès depuis le VPN, puis refus de toute autre source. Une
-empreinte différente ou une règle absente arrête la reprise sans supprimer la VM.
+validation par position garantit que ces règles précèdent le `RETURN` terminal
+installé par Docker. Une empreinte différente ou une règle absente arrête la
+reprise sans supprimer la VM.
 `StrictHostKeyChecking=accept-new` n'est jamais utilisé.

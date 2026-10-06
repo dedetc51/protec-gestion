@@ -19,15 +19,7 @@ ln -sfn "$shared_env" "$release/.env"; cd "$release"
 if [[ -n $dump ]]; then
   db_user=$(sed -n 's/^DB_USERNAME=//p' .env); db_name=$(sed -n 's/^DB_DATABASE=//p' .env)
   [[ $db_user =~ ^[A-Za-z_][A-Za-z0-9_]*$ && $db_name =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || { printf 'Unsafe database identifiers\n' >&2; exit 1; }
-  drill="${db_name}_restore_$$"; old="${db_name}_previous_$(date +%Y%m%d%H%M%S)"; failed="${db_name}_failed_$(date +%Y%m%d%H%M%S)"; restore_phase=none
-  docker compose stop app worker scheduler
-  docker compose exec -T postgres createdb -U "$db_user" "$drill"
-  restore_phase=drill_created
-  if ! gzip -cd "$dump" | docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U "$db_user" "$drill"; then
-    docker compose exec -T postgres dropdb -U "$db_user" --if-exists "$drill"
-    exit 1
-  fi
-  restore_phase=drill_loaded
+  drill="${db_name}_restore_$$"; old="${db_name}_previous_$(date +%Y%m%d%H%M%S)"; failed="${db_name}_failed_$(date +%Y%m%d%H%M%S)"; restore_phase=preparing
   restore_old_database() {
     rc=$?; trap - ERR
     docker compose stop app worker scheduler >/dev/null 2>&1 || true
@@ -46,7 +38,7 @@ SQL
 ALTER DATABASE "$old" RENAME TO "$db_name";
 SQL
         ;;
-      drill_created|drill_loaded)
+      preparing|drill_created|drill_loaded)
         docker compose exec -T postgres dropdb -U "$db_user" --if-exists "$drill" >/dev/null 2>&1 || true
         ;;
     esac
@@ -54,6 +46,11 @@ SQL
     exit "$rc"
   }
   trap restore_old_database ERR
+  docker compose stop app worker scheduler
+  docker compose exec -T postgres createdb -U "$db_user" "$drill"
+  restore_phase=drill_created
+  gzip -cd "$dump" | docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U "$db_user" "$drill"
+  restore_phase=drill_loaded
   docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U "$db_user" postgres <<SQL
 SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$db_name' AND pid <> pg_backend_pid();
 SQL

@@ -11,7 +11,7 @@ assert_fails() { if "$@" >"$TMP/out" 2>&1; then fail "command unexpectedly succe
 assert_contains() { grep -Fq -- "$1" "$2" || fail "missing '$1' in $2"; }
 assert_not_logged() { ! grep -Eq -- "$1" "$TMP/qm.log" || fail "unexpected qm action matching $1"; }
 
-mkdir -p "$TMP/bin" "$TMP/snippets"
+mkdir -p "$TMP/bin" "$TMP/snippets" "$TMP/hostkeys"
 cat >"$TMP/bin/pvecm" <<'EOF'
 #!/bin/sh
 printf 'Quorate: Yes\n'
@@ -76,8 +76,12 @@ cat >"$TMP/bin/ssh-keygen" <<'EOF'
 printf '256 SHA256:approved protec-gestion (ED25519)\n'
 EOF
 cat >"$TMP/bin/ssh" <<'EOF'
-#!/bin/sh
-exit 0
+#!/usr/bin/env bash
+known_hosts=''
+for argument in "$@"; do
+  case $argument in UserKnownHostsFile=*) known_hosts=${argument#*=};; esac
+done
+[[ -n $known_hosts && -s $known_hosts ]] || exit 42
 EOF
 cat >"$TMP/bin/sleep" <<'EOF'
 #!/bin/sh
@@ -94,10 +98,10 @@ case "$1" in
     if [[ $* == *'systemctl is-active nftables docker'* ]]; then
       required=(
         'systemctl is-active --quiet protec-docker-firewall.service'
-        'iptables -C DOCKER-USER -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT'
-        "iptables -C DOCKER-USER -p tcp --dport 80 -s '192.0.2.0/24' -j ACCEPT"
-        "iptables -C DOCKER-USER -p tcp --dport 80 -s '198.51.100.0/24' -j ACCEPT"
-        'iptables -C DOCKER-USER -p tcp --dport 80 -j DROP'
+        'iptables -S DOCKER-USER 1'
+        'iptables -S DOCKER-USER 2'
+        'iptables -S DOCKER-USER 3'
+        'iptables -S DOCKER-USER 4'
       )
       for check in "${required[@]}"; do
         [[ $* == *"$check"* ]] || { printf '{"exitcode":1,"exited":true}\n'; exit 0; }
@@ -117,6 +121,7 @@ printf 'x' >"$TMP/image"; printf '%0128d  image\n' 0 >"$TMP/image.sha512"
 : >"$TMP/leases"; printf 'reserved 192.0.2.10 protec-gestion\n' >"$TMP/dhcp-reservations"
 
 base_env=(env PATH="$TMP/bin:$PATH" STUB_QM_LOG="$TMP/qm.log" STUB_CREATED="$TMP/created"
+  TMPDIR="$TMP/hostkeys"
   SSH_PUBLIC_KEY="$TMP/id.pub" STATIC_IP_CIDR=192.0.2.10/24 GATEWAY=192.0.2.1 DNS_SERVER=192.0.2.53
   ADMIN_CIDR=192.0.2.0/24 LAN_CIDR=192.0.2.0/24 VPN_CIDR=198.51.100.0/24
   DHCP_LEASE_FILE="$TMP/leases" DHCP_RESERVATION_FILE="$TMP/dhcp-reservations"
@@ -149,6 +154,29 @@ for scenario in name ip dns ram storage checksum; do
   assert_not_logged '^create '
 done
 
+# Execute the cloud-init Docker firewall helper with an empty chain: all rules
+# must be inserted explicitly before Docker's terminal RETURN rule.
+awk '
+  /path: \/usr\/local\/sbin\/protec-docker-firewall/ {wanted=1; next}
+  wanted && /content: \|/ {content=1; next}
+  content && /^  - path:/ {exit}
+  content {sub(/^      /, ""); print}
+' "$ROOT/ops/provision/protec-gestion-cloud-init.yaml" >"$TMP/firewall-helper"
+chmod +x "$TMP/firewall-helper"
+cat >"$TMP/bin/iptables" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$STUB_IPTABLES_LOG"
+[[ $1 == -C ]] && exit 1
+exit 0
+EOF
+chmod +x "$TMP/bin/iptables"
+: >"$TMP/iptables.log"
+PATH="$TMP/bin:$PATH" STUB_IPTABLES_LOG="$TMP/iptables.log" "$TMP/firewall-helper"
+for position in 1 2 3 4; do
+  grep -Eq "^-I DOCKER-USER $position " "$TMP/iptables.log" || fail "firewall rule $position is not inserted before RETURN"
+done
+! grep -Eq '^-A DOCKER-USER ' "$TMP/iptables.log" || fail 'firewall helper appends a rule after Docker RETURN'
+
 # A failure after qm create cleans up only the VM created by this invocation.
 : >"$TMP/qm.log"; rm -f "$TMP/created"
 assert_fails "${base_env[@]}" STUB_VM_EXISTS=0 STUB_IMPORT_FAIL=1 "$SCRIPT"
@@ -162,6 +190,7 @@ if ! "${base_env[@]}" STUB_VM_EXISTS=0 "$SCRIPT" >"$TMP/out" 2>&1; then
 fi
 assert_contains 'awaiting_fingerprint_approval' "$TMP/out"
 assert_contains 'SHA256:approved' "$TMP/out"
+test -z "$(find "$TMP/hostkeys" -type f -print -quit)" || fail 'temporary SSH host key file was not cleaned up'
 grep -Eq '^start 115$' "$TMP/qm.log" || fail 'VM was not started'
 grep -Eq '^shutdown 115 --timeout 60$' "$TMP/qm.log" || fail 'VM was not shut down cleanly for approval'
 assert_not_logged '^destroy '
@@ -173,6 +202,7 @@ if ! "${base_env[@]}" STUB_VM_EXISTS=1 "$SCRIPT" --verify-fingerprint '256 SHA25
   fail 'phase 2 verification failed'
 fi
 assert_contains '"status":"verified"' "$TMP/out"
+test -z "$(find "$TMP/hostkeys" -type f -print -quit)" || fail 'temporary SSH host key file was not cleaned up after verification'
 assert_not_logged '^create '
 assert_not_logged '^destroy '
 
