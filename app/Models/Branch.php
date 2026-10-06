@@ -15,6 +15,12 @@ class Branch extends Model
     /** @use HasFactory<BranchFactory> */
     use HasFactory;
 
+    /** @return array<string, string> */
+    protected function casts(): array
+    {
+        return ['deactivated_at' => 'datetime'];
+    }
+
     /** @return BelongsTo<Department, $this> */
     public function department(): BelongsTo
     {

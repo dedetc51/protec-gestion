@@ -1,5 +1,8 @@
 <?php
 
+use App\Http\Controllers\Admin\BranchController;
+use App\Http\Controllers\Admin\DepartmentController;
+use App\Http\Controllers\Admin\MemberAssignmentController;
 use App\Http\Controllers\InitialPasswordController;
 use App\Models\User;
 use App\Services\SecurityAudit;
@@ -44,6 +47,18 @@ Route::middleware('auth')->group(function () {
         return redirect()->route('login');
     })->name('logout');
     Route::middleware('password.changed')->group(function () {
+        Route::prefix('admin')->name('admin.')->group(function (): void {
+            Route::get('organization', [DepartmentController::class, 'index'])->name('organization.index');
+            Route::post('organization/departments', [DepartmentController::class, 'store'])->name('organization.departments.store');
+            Route::patch('organization/departments/{department}', [DepartmentController::class, 'update'])->name('organization.departments.update');
+            Route::delete('organization/departments/{department}', [DepartmentController::class, 'destroy'])->name('organization.departments.destroy');
+            Route::post('organization/branches', [BranchController::class, 'store'])->name('organization.branches.store');
+            Route::patch('organization/branches/{branch}', [BranchController::class, 'update'])->name('organization.branches.update');
+            Route::delete('organization/branches/{branch}', [BranchController::class, 'destroy'])->name('organization.branches.destroy');
+            Route::get('assignments', [MemberAssignmentController::class, 'index'])->name('assignments.index');
+            Route::get('assignments/{user}/edit', [MemberAssignmentController::class, 'edit'])->name('assignments.edit');
+            Route::put('assignments/{user}', [MemberAssignmentController::class, 'update'])->name('assignments.update');
+        });
         Route::view('/dashboard', 'dashboard')->name('dashboard');
         Route::view('/equipment', 'modules.coming-soon', ['module' => 'Matériel'])->name('equipment.index');
         Route::view('/vehicles', 'modules.coming-soon', ['module' => 'Véhicules'])->name('vehicles.index');
