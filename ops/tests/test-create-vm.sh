@@ -22,6 +22,8 @@ case "$*" in *status*) printf '{"memory":{"free":%s}}\n' "${STUB_FREE_MEM:-85899
 EOF
 cat >"$TMP/bin/jq" <<'EOF'
 #!/usr/bin/env bash
+[[ ${STUB_JQ_UNAVAILABLE:-0} == 1 ]] && exit 127
+[[ ${1:-} == --version ]] && { printf 'jq-1.7\n'; exit 0; }
 case " $* " in
   *' -r '*) cat >/dev/null; printf '%s\n' "${STUB_FREE_MEM:-8589934592}";;
   *' -n '*)
@@ -35,7 +37,18 @@ esac
 EOF
 cat >"$TMP/bin/pvesm" <<'EOF'
 #!/bin/sh
-case "$*" in *--content*backup*) printf '[{"active":1}]\n';; *) printf '[{"active":1,"avail":%s}]\n' "${STUB_STORAGE_AVAIL:-85899345920}";; esac
+case "$*" in
+  *--output-format*) printf 'Unknown option: output-format\n' >&2; exit 255;;
+  *--storage\ nas-backup*--content\ backup*|*--content\ backup*--storage\ nas-backup*)
+    printf 'Name Type Status Total (KiB) Used (KiB) Available (KiB) %%\n'
+    [[ ${STUB_BACKUP_ACTIVE:-1} == 1 ]] && printf 'nas-backup cifs active 104857600 1 104857599 0.00%%\n'
+    ;;
+  *--storage\ local-lvm*)
+    printf 'Name Type Status Total (KiB) Used (KiB) Available (KiB) %%\n'
+    printf 'local-lvm lvmthin active 167772160 1 %s 0.00%%\n' "${STUB_STORAGE_AVAIL_KIB:-83886080}"
+    ;;
+  *) exit 2;;
+esac
 EOF
 cat >"$TMP/bin/ip" <<'EOF'
 #!/bin/sh
@@ -138,6 +151,20 @@ assert_contains 'gateway' "$TMP/out"
 assert_fails env "${base_env[@]:1}" DHCP_RESERVATION_FILE=/missing STUB_VM_EXISTS=0 "$SCRIPT" --preflight-only
 assert_contains 'DHCP' "$TMP/out"
 
+# PVE 9 exposes pvesm status only as a table. Preflight must consume that
+# interface and require the named remote backup storage, not any local target.
+: >"$TMP/qm.log"
+assert_fails "${base_env[@]}" STUB_VM_EXISTS=0 STUB_BACKUP_ACTIVE=0 "$SCRIPT" --preflight-only
+assert_contains 'nas-backup' "$TMP/out"
+assert_not_logged '^create '
+
+# jq is a real provisioning prerequisite and must fail with an actionable
+# preflight error before any VM mutation when it is unavailable.
+: >"$TMP/qm.log"
+assert_fails "${base_env[@]}" STUB_VM_EXISTS=0 STUB_JQ_UNAVAILABLE=1 "$SCRIPT" --preflight-only
+assert_contains 'jq' "$TMP/out"
+assert_not_logged '^create '
+
 # Independent name/IP/DNS/resource/checksum gates all run before creation.
 for scenario in name ip dns ram storage checksum; do
   : >"$TMP/qm.log"; rm -f "$TMP/created"
@@ -146,7 +173,7 @@ for scenario in name ip dns ram storage checksum; do
     ip) extra=(STUB_PING_COLLISION=1); expected='answers ping';;
     dns) extra=(STUB_DNS_COLLISION=1); expected='DNS name occupied';;
     ram) extra=(STUB_FREE_MEM=1); expected='insufficient node RAM';;
-    storage) extra=(STUB_STORAGE_AVAIL=1); expected='insufficient storage';;
+    storage) extra=(STUB_STORAGE_AVAIL_KIB=1); expected='insufficient storage';;
     checksum) extra=(STUB_CHECKSUM_FAIL=1); expected='checksum';;
   esac
   assert_fails "${base_env[@]}" STUB_VM_EXISTS=0 "${extra[@]}" "$SCRIPT" --preflight-only

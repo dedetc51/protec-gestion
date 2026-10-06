@@ -10,6 +10,7 @@ IMAGE=${DEBIAN_IMAGE:-/var/lib/vz/template/iso/debian-13-genericcloud-amd64.qcow
 CHECKSUM_FILE=${DEBIAN_CHECKSUM_FILE:-$IMAGE.sha512}
 SNIPPET_DIR=${PROXMOX_SNIPPET_DIR:-/var/lib/vz/snippets}
 HTTP_PORT=${HTTP_PORT:-8080}
+BACKUP_STORAGE=nas-backup
 
 owned_vm=0
 preserve_vm=0
@@ -52,6 +53,16 @@ verify_checksum() {
   printf '%s  %s\n' "$matches" "$IMAGE" | sha512sum -c - >/dev/null || die 'image checksum failed'
 }
 
+active_storage_available_kib() {
+  local storage=$1 content=${2:-} output
+  if [[ -n $content ]]; then
+    output=$(pvesm status --storage "$storage" --content "$content") || return 1
+  else
+    output=$(pvesm status --storage "$storage") || return 1
+  fi
+  awk -v storage="$storage" '$1 == storage && $3 == "active" && $6 ~ /^[0-9]+$/ { print $6; found=1; exit } END { if (!found) exit 1 }' <<<"$output"
+}
+
 ensure_image() {
   if [[ ! -s $IMAGE || ! -s $CHECKSUM_FILE ]]; then
     [[ ${DEBIAN_IMAGE_URL:-} =~ ^https://cloud\.debian\.org/images/cloud/trixie/ && ${DEBIAN_CHECKSUM_URL:-} =~ ^https://cloud\.debian\.org/images/cloud/trixie/ ]] || die 'official cloud.debian.org trixie image/checksum URLs are required'
@@ -76,8 +87,9 @@ validate_expected_vm() {
 }
 
 preflight() {
-  local allow_existing=$1 address node_json free_mem storage_json avail key live_gateway direct_dns
+  local allow_existing=$1 address node_json free_mem avail_kib key live_gateway direct_dns
   require_inputs
+  command -v jq >/dev/null 2>&1 && jq --version >/dev/null 2>&1 || die 'jq is required on the Proxmox host'
   address=${STATIC_IP_CIDR%/*}
   [[ $VM_NAME =~ ^[a-z0-9][a-z0-9-]{0,62}$ ]] || die 'invalid VM_NAME'
   pvecm status | grep -q 'Quorate:.*Yes' || die 'cluster is not quorate'
@@ -91,10 +103,8 @@ preflight() {
     ! qm status "$VMID" >/dev/null 2>&1 || die "VMID $VMID is occupied"
     ! qm list | awk 'NR>1 {print $2}' | grep -Fxq "$VM_NAME" || die "VM name $VM_NAME is occupied"
   fi
-  storage_json=$(pvesm status --storage "$STORAGE" --output-format json)
-  grep -q '"active"[[:space:]]*:[[:space:]]*1' <<<"$storage_json" || die 'storage inactive'
-  avail=$(sed -n 's/.*"avail"[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/p' <<<"$storage_json")
-  [[ -n $avail && $avail -ge 42949672960 ]] || die 'insufficient storage'
+  avail_kib=$(active_storage_available_kib "$STORAGE") || die "storage $STORAGE inactive"
+  [[ $avail_kib -ge 41943040 ]] || die 'insufficient storage'
   ip link show "$BRIDGE" >/dev/null || die 'unknown bridge'
   [[ -s $SSH_PUBLIC_KEY ]] || die 'SSH public key is absent'
   key=$(<"$SSH_PUBLIC_KEY")
@@ -117,7 +127,7 @@ preflight() {
     [[ -z $(dig +time=2 +tries=1 +short "@$DNS_SERVER" "$VM_NAME.cuperly" A) ]] || die 'DNS name occupied'
   fi
   pvesh get "/nodes/$NODE/firewall/options" --output-format json >/dev/null || die 'firewall policy unavailable'
-  pvesm status --content backup --output-format json | grep -q '"active"[[:space:]]*:[[:space:]]*1' || die 'no active backup storage'
+  active_storage_available_kib "$BACKUP_STORAGE" backup >/dev/null || die "required backup storage $BACKUP_STORAGE is not active with backup content"
   verify_checksum
   printf 'preflight=ok node=%s vmid=%s ip=%s gateway=%s dns=%s bridge=%s storage=%s vpn=%s\n' "$NODE" "$VMID" "$address" "$GATEWAY" "$DNS_SERVER" "$BRIDGE" "$STORAGE" "$VPN_CIDR"
 }
