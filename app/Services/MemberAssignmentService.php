@@ -61,20 +61,26 @@ class MemberAssignmentService
             'assignments.*.scope_id' => ['nullable', 'integer'],
             'assignments.*.starts_at' => ['nullable', 'date'],
             'assignments.*.ends_at' => ['nullable', 'date', 'after:assignments.*.starts_at'],
+            'represented' => ['sometimes', 'array:membership_ids,assignment_ids'],
+            'represented.membership_ids' => ['sometimes', 'array', 'max:200'],
+            'represented.membership_ids.*' => ['integer', 'distinct', 'exists:memberships,id'],
+            'represented.assignment_ids' => ['sometimes', 'array', 'max:500'],
+            'represented.assignment_ids.*' => ['integer', 'distinct', 'exists:role_assignments,id'],
         ];
     }
 
     /** @param array<int, array<string, mixed>> $memberships
      * @param  array<int, array<string, mixed>>  $assignments
+     * @param  array{membership_ids?: list<int>, assignment_ids?: list<int>}  $represented
      */
-    public function replace(User $subject, array $memberships, array $assignments, User $actor): void
+    public function replace(User $subject, array $memberships, array $assignments, User $actor, array $represented = []): void
     {
-        Validator::make(compact('memberships', 'assignments'), self::rules(), [
+        Validator::make(compact('memberships', 'assignments', 'represented'), self::rules(), [
             'after' => 'La date de fin doit être postérieure à la date de début.',
             'distinct' => 'Cette antenne est déjà sélectionnée.',
         ])->validate();
 
-        DB::transaction(function () use ($subject, $memberships, $assignments, $actor): void {
+        DB::transaction(function () use ($subject, $memberships, $assignments, $actor, $represented): void {
             $technicalRole = Role::where('slug', 'technical-admin')->lockForUpdate()->firstOrFail();
             $hadTechnicalAdmin = RoleAssignment::active()->where('role_id', $technicalRole->id)->where('scope_type', 'global')->whereNull('scope_id')->whereHas('user', fn (Builder $query): Builder => $query->whereNull('deactivated_at'))->exists();
             $subject = User::whereKey($subject->id)->lockForUpdate()->firstOrFail();
@@ -139,14 +145,17 @@ class MemberAssignmentService
                 $query->where(fn (Builder $query): Builder => $query->where('scope_type', 'department')->whereIn('scope_id', $departmentIds))
                     ->orWhere(fn (Builder $query): Builder => $query->where('scope_type', 'branch')->whereIn('scope_id', $branchIds));
             })->lockForUpdate()->get();
+            $representedMembershipIds = array_map('intval', $represented['membership_ids'] ?? []);
+            $representedAssignmentIds = array_map('intval', $represented['assignment_ids'] ?? []);
+            abort_if(array_diff($representedMembershipIds, $currentMemberships->modelKeys()) !== []
+                || array_diff($representedAssignmentIds, $currentAssignments->modelKeys()) !== [], 403);
             $before = ['membership_ids' => $currentMemberships->modelKeys(), 'assignment_ids' => $currentAssignments->modelKeys()];
             $at = now()->startOfSecond();
-            $membershipIds = $this->replaceRows($subject, $currentMemberships, $memberships, ['branch_id'], 'memberships', $actor, $at);
-            $assignmentIds = $this->replaceRows($subject, $currentAssignments, $assignments, ['role_id', 'scope_type', 'scope_id'], 'assignments', $actor, $at);
+            $membershipIds = $this->replaceRows($subject, $currentMemberships, $memberships, ['branch_id'], 'memberships', $actor, $at, $representedMembershipIds);
+            $assignmentIds = $this->replaceRows($subject, $currentAssignments, $assignments, ['role_id', 'scope_type', 'scope_id'], 'assignments', $actor, $at, $representedAssignmentIds);
 
-            if ($hadTechnicalAdmin && ! RoleAssignment::active($at)->where('role_id', $technicalRole->id)->where('scope_type', 'global')->whereNull('scope_id')
-                ->whereHas('user', fn (Builder $query): Builder => $query->whereNull('deactivated_at'))->exists()) {
-                throw ValidationException::withMessages(['assignments' => 'Le dernier administrateur technique actif doit être conservé.']);
+            if ($hadTechnicalAdmin && ! $this->hasContinuousTechnicalCoverage($technicalRole, $at)) {
+                throw ValidationException::withMessages(['assignments' => 'Un administrateur technique doit rester disponible sans interruption, avec une période finale sans date de fin.']);
             }
 
             AuditEvent::create(['actor_id' => $actor->id, 'event' => 'members.assignments.replaced', 'outcome' => 'success', 'metadata' => [
@@ -159,9 +168,10 @@ class MemberAssignmentService
     /** @param Collection<int, Membership|RoleAssignment> $current
      * @param  array<int, array<string, mixed>>  $desired
      * @param  list<string>  $keys
+     * @param  list<int>  $representedIds
      * @return list<int>
      */
-    private function replaceRows(User $subject, Collection $current, array $desired, array $keys, string $kind, User $actor, Carbon $at): array
+    private function replaceRows(User $subject, Collection $current, array $desired, array $keys, string $kind, User $actor, Carbon $at, array $representedIds): array
     {
         $desired = array_map(function (array $row) use ($keys): array {
             $normalized = [];
@@ -184,7 +194,7 @@ class MemberAssignmentService
             }
         }
         foreach ($current as $record) {
-            if (in_array($record->id, $matches, true) || ($record->ends_at !== null && $record->ends_at->lte($at))) {
+            if (! in_array($record->id, $representedIds, true) || in_array($record->id, $matches, true) || ($record->ends_at !== null && $record->ends_at->lte($at))) {
                 continue;
             }
             $before = $record->only([...$keys, 'starts_at', 'ends_at']);
@@ -204,7 +214,7 @@ class MemberAssignmentService
                 throw ValidationException::withMessages(["$kind.$index.ends_at" => 'La nouvelle période doit se terminer après sa date de début.']);
             }
             $relation = $kind === 'memberships' ? $subject->memberships() : $subject->roleAssignments();
-            $overlap = $relation->getQuery();
+            $overlap = $relation->getQuery()->where(fn (Builder $query): Builder => $query->whereNull('starts_at')->orWhereNull('ends_at')->orWhereColumn('ends_at', '>', 'starts_at'));
             foreach ($keys as $key) {
                 $overlap->where($key, $row[$key]);
             }
@@ -223,7 +233,30 @@ class MemberAssignmentService
         }
         ksort($matches);
 
-        return array_values($matches);
+        return array_values(array_unique([...$matches, ...$current->filter(fn (Model $record): bool => $record->ends_at === null || $record->ends_at->gt($at))->modelKeys()]));
+    }
+
+    private function hasContinuousTechnicalCoverage(Role $technicalRole, Carbon $at): bool
+    {
+        $intervals = RoleAssignment::where('role_id', $technicalRole->id)->where('scope_type', 'global')->whereNull('scope_id')
+            ->whereHas('user', fn (Builder $query): Builder => $query->whereNull('deactivated_at'))
+            ->where(fn (Builder $query): Builder => $query->whereNull('ends_at')->orWhere('ends_at', '>', $at))
+            ->where(fn (Builder $query): Builder => $query->whereNull('starts_at')->orWhereNull('ends_at')->orWhereColumn('ends_at', '>', 'starts_at'))
+            ->get()->sortBy(fn (RoleAssignment $assignment): int => $assignment->starts_at?->getTimestamp() ?? PHP_INT_MIN);
+        $coveredUntil = $at->copy();
+        foreach ($intervals as $interval) {
+            if ($interval->starts_at !== null && $interval->starts_at->gt($coveredUntil)) {
+                return false;
+            }
+            if ($interval->ends_at === null) {
+                return true;
+            }
+            if ($interval->ends_at->gt($coveredUntil)) {
+                $coveredUntil = $interval->ends_at;
+            }
+        }
+
+        return false;
     }
 
     private function auditRow(User $subject, Model $record, string $event, User $actor, array $before): void

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\OrganizationName;
 use Database\Factories\BranchFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -14,6 +15,14 @@ class Branch extends Model
 {
     /** @use HasFactory<BranchFactory> */
     use HasFactory;
+
+    protected static function booted(): void
+    {
+        static::saving(function (Branch $branch): void {
+            $branch->name = OrganizationName::display($branch->name);
+            $branch->name_key = OrganizationName::key($branch->name);
+        });
+    }
 
     /** @return array<string, string> */
     protected function casts(): array

@@ -57,7 +57,7 @@ class MemberAssignmentManagementTest extends TestCase
         $this->put('/admin/assignments/'.$subject->id, ['memberships' => [], 'assignments' => [$this->assignment('operations-manager', 'department', $foreign->department_id)]])->assertForbidden();
         $this->put('/admin/assignments/'.$subject->id, ['memberships' => [], 'assignments' => [$this->assignment('technical-admin', 'global', null)]])->assertForbidden();
         $this->assertDatabaseCount('audit_events', 0);
-        $this->put('/admin/assignments/'.$subject->id, ['memberships' => [], 'assignments' => []])->assertRedirect();
+        $this->put('/admin/assignments/'.$subject->id, ['memberships' => [], 'assignments' => [], 'represented' => ['membership_ids' => $subject->memberships()->where('branch_id', $own->id)->pluck('id')->all()]])->assertRedirect();
         $this->assertNull($foreignMembership->fresh()->ends_at);
         $this->assertNull($foreignAssignment->fresh()->ends_at);
         $this->assertSame(1, $subject->memberships()->active()->count());
@@ -96,7 +96,7 @@ class MemberAssignmentManagementTest extends TestCase
         $payload = ['memberships' => [['branch_id' => $branch->id]], 'assignments' => [$this->assignment('volunteer', 'branch', $branch->id)]];
         $this->put('/admin/assignments/'.$subject->id, $payload)->assertRedirect();
         $this->assertSame([$membership->id], $subject->memberships()->pluck('id')->all());
-        $this->put('/admin/assignments/'.$subject->id, ['memberships' => [], 'assignments' => []])->assertRedirect();
+        $this->put('/admin/assignments/'.$subject->id, ['memberships' => [], 'assignments' => []] + $this->represented($subject))->assertRedirect();
         $this->assertTrue($assignment->fresh()->ends_at->eq(now()));
         $this->travel(1)->hour();
         $this->put('/admin/assignments/'.$subject->id, $payload)->assertRedirect();
@@ -122,8 +122,8 @@ class MemberAssignmentManagementTest extends TestCase
     public function test_final_admin_cannot_be_removed_or_replaced_with_future_assignment(): void
     {
         $actor = $this->actor();
-        $this->actingAs($actor)->put('/admin/assignments/'.$actor->id, ['memberships' => [], 'assignments' => []])->assertSessionHasErrors('assignments');
-        $this->put('/admin/assignments/'.$actor->id, ['memberships' => [], 'assignments' => [$this->assignment('technical-admin', 'global', null) + ['starts_at' => now()->addDay()->toDateTimeString()]]])->assertSessionHasErrors('assignments');
+        $this->actingAs($actor)->put('/admin/assignments/'.$actor->id, ['memberships' => [], 'assignments' => []] + $this->represented($actor))->assertSessionHasErrors('assignments');
+        $this->put('/admin/assignments/'.$actor->id, ['memberships' => [], 'assignments' => [$this->assignment('technical-admin', 'global', null) + ['starts_at' => now()->addDay()->toDateTimeString()]]] + $this->represented($actor))->assertSessionHasErrors('assignments');
         $this->assertTrue($actor->canIn('technical.manage', AuthorizationContext::global()));
         $this->assertDatabaseCount('audit_events', 0);
     }
@@ -151,7 +151,7 @@ class MemberAssignmentManagementTest extends TestCase
     {
         $subject = $this->actor();
         $actor = $this->actor();
-        $this->actingAs($actor)->put('/admin/assignments/'.$subject->id, ['memberships' => [], 'assignments' => []])->assertRedirect();
+        $this->actingAs($actor)->put('/admin/assignments/'.$subject->id, ['memberships' => [], 'assignments' => []] + $this->represented($subject))->assertRedirect();
         $this->assertFalse($subject->canIn('technical.manage', AuthorizationContext::global()));
         $this->assertTrue($actor->canIn('technical.manage', AuthorizationContext::global()));
         $this->assertSame(2, RoleAssignment::count());
@@ -161,7 +161,7 @@ class MemberAssignmentManagementTest extends TestCase
     {
         $actor = $this->actor();
         $this->actor()->forceFill(['deactivated_at' => now()])->save();
-        $this->actingAs($actor)->put('/admin/assignments/'.$actor->id, ['memberships' => [], 'assignments' => []])->assertSessionHasErrors('assignments');
+        $this->actingAs($actor)->put('/admin/assignments/'.$actor->id, ['memberships' => [], 'assignments' => []] + $this->represented($actor))->assertSessionHasErrors('assignments');
         $this->assertSame(2, RoleAssignment::active()->count());
         $this->assertDatabaseCount('audit_events', 0);
     }
@@ -172,11 +172,11 @@ class MemberAssignmentManagementTest extends TestCase
         $subject = User::factory()->create();
         $branch = Branch::factory()->create();
         $history = Membership::factory()->create(['user_id' => $subject->id, 'branch_id' => $branch->id, 'starts_at' => '2026-10-01']);
-        $this->actingAs($this->actor())->put('/admin/assignments/'.$subject->id, ['memberships' => [['branch_id' => $branch->id, 'starts_at' => '2026-10-01', 'ends_at' => '2026-10-09']], 'assignments' => []])->assertRedirect();
+        $this->actingAs($this->actor())->put('/admin/assignments/'.$subject->id, ['memberships' => [['branch_id' => $branch->id, 'starts_at' => '2026-10-01', 'ends_at' => '2026-10-09']], 'assignments' => []] + $this->represented($subject))->assertRedirect();
         $this->assertSame('2026-10-06 12:00:00', $history->fresh()->ends_at->toDateTimeString());
         $this->assertDatabaseHas('memberships', ['user_id' => $subject->id, 'branch_id' => $branch->id, 'starts_at' => '2026-10-06 12:00:00', 'ends_at' => '2026-10-09 00:00:00']);
         $other = Branch::factory()->create();
-        $this->put('/admin/assignments/'.$subject->id, ['memberships' => [['branch_id' => $other->id, 'starts_at' => '2026-09-01', 'ends_at' => '2026-09-02']], 'assignments' => [$this->assignment('volunteer', 'branch', $other->id) + ['starts_at' => '2026-09-01', 'ends_at' => '2026-09-02']]])->assertRedirect();
+        $this->put('/admin/assignments/'.$subject->id, ['memberships' => [['branch_id' => $other->id, 'starts_at' => '2026-09-01', 'ends_at' => '2026-09-02']], 'assignments' => [$this->assignment('volunteer', 'branch', $other->id) + ['starts_at' => '2026-09-01', 'ends_at' => '2026-09-02']]] + $this->represented($subject))->assertRedirect();
         $this->assertSame(0, $subject->memberships()->active()->count());
         $this->assertFalse($subject->canIn('equipment.view', AuthorizationContext::branch($other)));
     }
@@ -204,6 +204,11 @@ class MemberAssignmentManagementTest extends TestCase
     private function assignment(string $slug, string $scope, ?int $id): array
     {
         return ['role_id' => Role::where('slug', $slug)->firstOrFail()->id, 'scope_type' => $scope, 'scope_id' => $id];
+    }
+
+    private function represented(User $subject): array
+    {
+        return ['represented' => ['membership_ids' => $subject->memberships()->pluck('id')->all(), 'assignment_ids' => $subject->roleAssignments()->pluck('id')->all()]];
     }
 
     public function test_saving_rendered_form_unchanged_preserves_second_precision_and_row_identity(): void

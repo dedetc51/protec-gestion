@@ -6,6 +6,7 @@ use App\Models\AuditEvent;
 use App\Models\Role;
 use App\Models\User;
 use Illuminate\Console\Command;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
@@ -66,7 +67,9 @@ class EnsureInitialAdmin extends Command
         if ((clone $assignments)->active($at)->exists()) {
             return;
         }
-        $nextStart = (clone $assignments)->where('starts_at', '>', $at)->orderBy('starts_at')->first()?->starts_at;
+        $nextStart = (clone $assignments)->where('starts_at', '>', $at)
+            ->where(fn (Builder $query): Builder => $query->whereNull('ends_at')->orWhereColumn('ends_at', '>', 'starts_at'))
+            ->orderBy('starts_at')->first()?->starts_at;
         $assignment = $user->roleAssignments()->create(['role_id' => $role->id, 'scope_type' => 'global', 'scope_id' => null, 'starts_at' => $at, 'ends_at' => $nextStart]);
         AuditEvent::create(['actor_id' => null, 'event' => 'members.role.assigned', 'outcome' => 'success', 'metadata' => [
             'action' => 'bootstrap', 'target_id' => $user->id, 'record_id' => $assignment->id,

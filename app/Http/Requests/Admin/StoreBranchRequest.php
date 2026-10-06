@@ -4,6 +4,7 @@ namespace App\Http\Requests\Admin;
 
 use App\Models\Branch;
 use App\Models\Department;
+use App\Support\OrganizationName;
 use Closure;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Facades\Gate;
@@ -28,7 +29,7 @@ class StoreBranchRequest extends FormRequest
     protected function prepareForValidation(): void
     {
         if (is_string($this->input('name'))) {
-            $this->merge(['name' => preg_replace('/\s+/u', ' ', trim($this->input('name')))]);
+            $this->merge(['name' => OrganizationName::display($this->input('name'))]);
         }
     }
 
@@ -37,7 +38,10 @@ class StoreBranchRequest extends FormRequest
         return [
             'department_id' => ['required', 'integer', Rule::exists('departments', 'id')->whereNull('deactivated_at')],
             'name' => ['bail', 'required', 'string', 'max:255', function (string $attribute, mixed $value, Closure $fail): void {
-                if (Branch::where('department_id', $this->input('department_id'))->whereRaw('lower(name) = ?', [mb_strtolower($value)])->when($this->route('branch'), fn ($query) => $query->whereKeyNot($this->route('branch')->id))->exists()) {
+                $query = Branch::where('department_id', $this->input('department_id'))->when($this->route('branch'), fn ($query) => $query->whereKeyNot($this->route('branch')->id));
+                $key = OrganizationName::key($value);
+                if ((clone $query)->where('name_key', $key)->exists()
+                    || (clone $query)->whereNull('name_key')->pluck('name')->contains(fn (string $name): bool => OrganizationName::key($name) === $key)) {
                     $fail('Ce nom d’antenne existe déjà dans ce département.');
                 }
             }],

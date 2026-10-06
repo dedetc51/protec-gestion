@@ -3,7 +3,7 @@
 @section('content')
 <h1>Affectations de {{ $user->name }}</h1>
 <p>{{ $user->email }}</p>
-<p>Cochez les appartenances et les responsabilités à conserver. Les cases décochées terminent les affectations de votre périmètre. Les autres départements conservent leurs affectations.</p>
+<p>Cochez les appartenances et les responsabilités à conserver. Les cases décochées terminent uniquement les périodes affichées dans ce formulaire. Les autres périodes et départements conservent leurs affectations.</p>
 <p>Les dates sont facultatives. Une fin exclut l’accès dès cet instant. Modifier une période en cours crée une nouvelle période à partir d’aujourd’hui et conserve la précédente.</p>
 @if(session('status'))<p role="status" aria-live="polite">{{ session('status') }}</p>@endif
 @if($errors->any())
@@ -16,6 +16,7 @@
 @foreach($membershipRows as $index => $row)
 <fieldset id="memberships_{{ $index }}" tabindex="-1"><legend>{{ $row['label'] }}</legend>
 <input type="hidden" name="memberships[{{ $index }}][branch_id]" value="{{ $row['branch_id'] }}">
+@if($row['record_id'] !== null)<input type="hidden" name="represented[membership_ids][]" value="{{ $row['record_id'] }}">@endif
 <label for="memberships_{{ $index }}_branch_id"><input id="memberships_{{ $index }}_branch_id" type="checkbox" name="memberships[{{ $index }}][enabled]" value="1" @checked(old('selection_mode') ? old("memberships.$index.branch_id") !== null : $row['enabled'])>Membre de cette antenne</label>
 <label for="memberships_{{ $index }}_starts_at">Date de début</label><input id="memberships_{{ $index }}_starts_at" type="datetime-local" step="1" name="memberships[{{ $index }}][starts_at]" value="{{ old("memberships.$index.starts_at", $row['starts_at']) }}">
 <label for="memberships_{{ $index }}_ends_at">Date de fin</label><input id="memberships_{{ $index }}_ends_at" type="datetime-local" step="1" name="memberships[{{ $index }}][ends_at]" value="{{ old("memberships.$index.ends_at", $row['ends_at']) }}">
@@ -30,6 +31,7 @@
 @if($row['scope_type'] === $scope)
 <fieldset id="assignments_{{ $index }}_scope_id" tabindex="-1"><legend>{{ $row['label'] }}</legend>
 <input type="hidden" name="assignments[{{ $index }}][role_id]" value="{{ $row['role_id'] }}"><input type="hidden" name="assignments[{{ $index }}][scope_type]" value="{{ $row['scope_type'] }}"><input type="hidden" name="assignments[{{ $index }}][scope_id]" value="{{ $row['scope_id'] }}">
+@if($row['record_id'] !== null)<input type="hidden" name="represented[assignment_ids][]" value="{{ $row['record_id'] }}">@endif
 <label for="assignments_{{ $index }}_role_id"><input id="assignments_{{ $index }}_role_id" type="checkbox" name="assignments[{{ $index }}][enabled]" value="1" @checked(old('selection_mode') ? old("assignments.$index.role_id") !== null : $row['enabled'])>Attribuer cette responsabilité</label>
 <label for="assignments_{{ $index }}_starts_at">Date de début</label><input id="assignments_{{ $index }}_starts_at" type="datetime-local" step="1" name="assignments[{{ $index }}][starts_at]" value="{{ old("assignments.$index.starts_at", $row['starts_at']) }}">
 <label for="assignments_{{ $index }}_ends_at">Date de fin</label><input id="assignments_{{ $index }}_ends_at" type="datetime-local" step="1" name="assignments[{{ $index }}][ends_at]" value="{{ old("assignments.$index.ends_at", $row['ends_at']) }}">

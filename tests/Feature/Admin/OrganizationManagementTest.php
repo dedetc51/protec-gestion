@@ -9,6 +9,7 @@ use App\Models\Role;
 use App\Models\RoleAssignment;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 class OrganizationManagementTest extends TestCase
@@ -92,5 +93,30 @@ class OrganizationManagementTest extends TestCase
         $this->post('/admin/organization/branches', ['department_id' => $first->id, 'name' => 'centre ville'])->assertSessionHasErrors(['name' => 'Ce nom d’antenne existe déjà dans ce département.']);
         $this->post('/admin/organization/branches', ['department_id' => $second->id, 'name' => 'Centre Ville'])->assertRedirect();
         $this->assertSame(2, Branch::where('name', 'Centre Ville')->count());
+    }
+
+    public function test_unicode_names_have_portable_unique_keys_in_departments_and_branches(): void
+    {
+        $department = Department::factory()->create(['name' => 'École']);
+        $branch = Branch::factory()->create(['department_id' => $department->id, 'name' => 'Équipe']);
+        $this->actingAs($this->actor('technical-admin'));
+        foreach (['école', 'École', "E\u{0301}cole"] as $name) {
+            $this->post('/admin/organization/departments', ['name' => $name])->assertSessionHasErrors('name');
+        }
+        foreach (['équipe', 'Équipe', "E\u{0301}quipe"] as $name) {
+            $this->post('/admin/organization/branches', ['department_id' => $department->id, 'name' => $name])->assertSessionHasErrors('name');
+        }
+        $this->assertSame('école', $department->fresh()->name_key);
+        $this->assertSame('équipe', $branch->fresh()->name_key);
+        $this->assertDatabaseCount('audit_events', 0);
+    }
+
+    public function test_legacy_rows_without_derived_keys_cannot_bypass_unicode_name_validation(): void
+    {
+        $id = DB::table('departments')->insertGetId(['name' => 'École historique', 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('branches')->insert(['department_id' => $id, 'name' => 'Équipe historique', 'created_at' => now(), 'updated_at' => now()]);
+        $this->actingAs($this->actor('technical-admin'))->post('/admin/organization/departments', ['name' => 'école historique'])->assertSessionHasErrors('name');
+        $this->post('/admin/organization/branches', ['department_id' => $id, 'name' => 'équipe historique'])->assertSessionHasErrors('name');
+        $this->assertDatabaseCount('audit_events', 0);
     }
 }

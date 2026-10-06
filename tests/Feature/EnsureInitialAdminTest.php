@@ -132,4 +132,23 @@ class EnsureInitialAdminTest extends TestCase
         $this->assertSame('2026-10-07 12:00:00', $future->fresh()->starts_at->toDateTimeString());
         $this->assertDatabaseCount('role_assignments', 2);
     }
+
+    public function test_bootstrap_ignores_cancelled_and_empty_future_windows(): void
+    {
+        $this->travelTo(Carbon::parse('2026-10-06 12:00:00'));
+        $user = User::factory()->create(['email' => 'admin@example.test', 'role' => 'admin']);
+        $roleId = Role::where('slug', 'technical-admin')->sole()->id;
+        $cancelled = RoleAssignment::create(['user_id' => $user->id, 'role_id' => $roleId, 'scope_type' => 'global', 'scope_id' => null, 'starts_at' => '2026-10-07 12:00:00', 'ends_at' => '2026-10-06 11:00:00']);
+        $empty = RoleAssignment::create(['user_id' => $user->id, 'role_id' => $roleId, 'scope_type' => 'global', 'scope_id' => null, 'starts_at' => '2026-10-08 12:00:00', 'ends_at' => '2026-10-08 12:00:00']);
+        $this->setInitialPassword('Temporary-password-42!');
+        $this->artisan('protec:ensure-initial-admin', ['--name' => 'Admin', '--email' => $user->email])->assertExitCode(0);
+        $this->artisan('protec:ensure-initial-admin', ['--name' => 'Admin', '--email' => $user->email])->assertExitCode(0);
+        $this->travelTo(Carbon::parse('2026-10-07 12:00:00'));
+        $this->assertTrue($user->canIn('technical.manage', AuthorizationContext::global()));
+        $this->travelTo(Carbon::parse('2026-10-08 12:00:00'));
+        $this->assertTrue($user->canIn('technical.manage', AuthorizationContext::global()));
+        $this->assertSame('2026-10-06 11:00:00', $cancelled->fresh()->ends_at->toDateTimeString());
+        $this->assertSame('2026-10-08 12:00:00', $empty->fresh()->ends_at->toDateTimeString());
+        $this->assertDatabaseCount('role_assignments', 3);
+    }
 }
