@@ -41,7 +41,7 @@ case "$*" in
   *--output-format*) printf 'Unknown option: output-format\n' >&2; exit 255;;
   *--storage\ nas-backup*--content\ backup*|*--content\ backup*--storage\ nas-backup*)
     printf 'Name Type Status Total (KiB) Used (KiB) Available (KiB) %%\n'
-    [[ ${STUB_BACKUP_ACTIVE:-1} == 1 ]] && printf 'nas-backup cifs active 104857600 1 104857599 0.00%%\n'
+    [ "${STUB_BACKUP_ACTIVE:-1}" -eq 1 ] && printf 'nas-backup cifs active 104857600 1 104857599 0.00%%\n'
     ;;
   *--storage\ local-lvm*)
     printf 'Name Type Status Total (KiB) Used (KiB) Available (KiB) %%\n'
