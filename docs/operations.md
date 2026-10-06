@@ -11,8 +11,10 @@ qu'après migrations et contrôles de santé.
 La production doit définir `HTTP_BIND_IP` sur l'adresse privée de la VM et
 `HTTP_PORT=8080`; ce même port est injecté dans le pare-feu invité. Chaque
 release exporte `APP_IMAGE_TAG` avec son SHA exact, y compris lors d'un rollback.
-Après la création initiale, les trois variables `INITIAL_ADMIN_*` peuvent être
-retirées. Si l'une est présente, nom, adresse et mot de passe sont tous requis.
+Les secrets du premier administrateur ne vont jamais dans `.env`. Les placer
+ensemble dans `/opt/protec-gestion/shared/initial-admin.env`, mode `0600` ; le
+déploiement les injecte uniquement dans la commande bootstrap puis supprime ce
+fichier après réussite.
 
 ## Retour arrière
 
@@ -50,3 +52,7 @@ Les deux URL doivent rester sous `https://cloud.debian.org/images/cloud/trixie/`
 et le fichier SHA512 doit contenir exactement une entrée pour le nom de l'image.
 Le rapport de préflight doit inclure quorum/nœud, RAM, espace stockage, bridge,
 VMID/nom, DHCP/ARP/ICMP/DNS, VPN, pare-feu et stockage de sauvegarde.
+`DHCP_LEASE_FILE` doit pointer vers une preuve de baux lisible et l'adresse ne
+doit pas y figurer. `SSH_HOST_FINGERPRINT` doit contenir la ligne exacte
+produite par `ssh-keygen -lf` pour la clé hôte attendue ; aucune acceptation au
+premier contact n'est effectuée.

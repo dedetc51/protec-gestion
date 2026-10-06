@@ -45,4 +45,7 @@ grep -q 'ALTER DATABASE' "$ROLLBACK" || fail "database is not replaced atomicall
 grep -q 'curl.*up' "$DEPLOY" || fail "post-maintenance HTTP is not verified"
 grep -q 'INITIAL_ADMIN_NAME' "$DEPLOY" || fail "initial admin name contract is missing"
 grep -q 'docker compose up -d --remove-orphans' "$DEPLOY" || fail "failed deployment cannot restore containers"
+grep -q 'restore_old_database' "$ROLLBACK" || fail "failed rollback does not restore the prior database"
+grep -q 'realpath -e' "$ROLLBACK" || fail "dump path is not canonicalized"
+grep -q 'initial-admin.env' "$DEPLOY" || fail "bootstrap secrets are not separated"
 printf 'test-deploy: ok\n'

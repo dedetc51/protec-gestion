@@ -36,5 +36,6 @@ test ! -e "$TMP/backups/protec-gestion-20261007-021500.sql.gz" || fail "failed a
 grep -q 'COMPOSE_PROJECT_NAME=protec-gestion' "$SCRIPT" || fail "backup compose project is not fixed"
 grep -q 'DB_USERNAME' "$SCRIPT" || fail "backup does not read database user"
 test -x "$DRILL" || fail "restore drill is not executable"
-grep -q 'protec_restore_drill' "$DRILL" || fail "restore drill does not use a disposable database"
+grep -q 'protec_restore_drill_' "$DRILL" || fail "restore drill does not use a unique disposable database"
+! grep -q 'dropdb.*--if-exists' "$DRILL" || fail "restore drill must refuse collisions, not pre-drop"
 printf 'test-backup: ok\n'

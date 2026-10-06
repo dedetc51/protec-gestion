@@ -11,7 +11,7 @@ set -Eeuo pipefail
 revision=$1; root=$2
 [[ $revision =~ ^[0-9a-f]{40}$ && $root =~ ^/opt/[A-Za-z0-9._/-]+$ && $root != *..* ]] || exit 2
 export COMPOSE_PROJECT_NAME=protec-gestion APP_IMAGE_TAG="$revision"
-repo=${PROTEC_GIT_URL:-https://github.com/dedetc51/protec-gestion.git}; release="$root/releases/$revision"; shared_env="$root/shared/.env"
+repo=${PROTEC_GIT_URL:-https://github.com/dedetc51/protec-gestion.git}; release="$root/releases/$revision"; shared_env="$root/shared/.env"; admin_env=${PROTEC_INITIAL_ADMIN_ENV_FILE:-$root/shared/initial-admin.env}
 previous=''; dump='none'; maintenance=0
 health() { local bind port; bind=$(sed -n 's/^HTTP_BIND_IP=//p' "$1"); bind=${bind:-127.0.0.1}; port=$(sed -n 's/^HTTP_PORT=//p' "$1"); port=${port:-8080}; curl --fail --silent --show-error "http://$bind:$port/up" >/dev/null; }
 recover() {
@@ -29,8 +29,13 @@ trap recover ERR
 [[ -f $shared_env && ! -L $shared_env ]] || { printf 'Missing regular shared .env\n' >&2; false; }
 mode=$(stat -c '%a' "$shared_env"); [[ $mode == 600 ]] || { printf 'shared .env must have mode 0600\n' >&2; false; }
 for variable in APP_KEY DB_DATABASE DB_USERNAME DB_PASSWORD; do grep -Eq "^${variable}=.+" "$shared_env" || { printf 'Missing required variable %s\n' "$variable" >&2; false; }; done
-admin_email=$(sed -n 's/^INITIAL_ADMIN_EMAIL=//p' "$shared_env"); admin_password=$(sed -n 's/^INITIAL_ADMIN_PASSWORD=//p' "$shared_env"); admin_name=$(sed -n 's/^INITIAL_ADMIN_NAME=//p' "$shared_env")
-if [[ -n $admin_email || -n $admin_password || -n $admin_name ]]; then [[ -n $admin_email && -n $admin_password && -n $admin_name ]] || { printf 'Initial admin name, email and password are all required when creating it\n' >&2; false; }; fi
+! grep -q '^INITIAL_ADMIN_' "$shared_env" || { printf 'Initial admin secrets must not be stored in persistent .env\n' >&2; false; }
+admin_name=''; admin_email=''; admin_password=''
+if [[ -e $admin_env ]]; then
+  [[ -f $admin_env && ! -L $admin_env && $(stat -c '%a' "$admin_env") == 600 ]] || { printf 'initial-admin.env must be a regular mode 0600 file\n' >&2; false; }
+  admin_name=$(sed -n 's/^INITIAL_ADMIN_NAME=//p' "$admin_env"); admin_email=$(sed -n 's/^INITIAL_ADMIN_EMAIL=//p' "$admin_env"); admin_password=$(sed -n 's/^INITIAL_ADMIN_PASSWORD=//p' "$admin_env")
+  [[ -n $admin_email && -n $admin_password && -n $admin_name ]] || { printf 'Initial admin name, email and password are all required\n' >&2; false; }
+fi
 [[ ! -e $root/current || -L $root/current ]] || { printf 'current must be a symlink\n' >&2; false; }
 [[ -L $root/current ]] && previous=$(readlink -f "$root/current")
 mkdir -p "$root/releases" "$root/shared/backups"
@@ -41,7 +46,7 @@ if [[ -n $previous ]]; then dump=$(BACKUP_ENV_FILE="$shared_env" "$release/ops/b
 docker compose run --rm app php artisan migrate --force; docker compose up -d --remove-orphans
 for _ in {1..30}; do db_user=$(sed -n 's/^DB_USERNAME=//p' .env); docker compose exec -T postgres pg_isready -U "$db_user" >/dev/null 2>&1 && health .env && ready=1 && break; sleep 2; done
 [[ ${ready:-0} == 1 ]] || { printf 'Health check failed\n' >&2; false; }
-if [[ -n $admin_email ]]; then set +x; docker compose exec -T app php artisan protec:ensure-initial-admin; fi
+if [[ -n $admin_email ]]; then set +x; docker compose exec -T -e INITIAL_ADMIN_NAME="$admin_name" -e INITIAL_ADMIN_EMAIL="$admin_email" -e INITIAL_ADMIN_PASSWORD="$admin_password" app php artisan protec:ensure-initial-admin; rm -f -- "$admin_env"; unset admin_name admin_email admin_password; fi
 docker compose exec -T app php artisan up; maintenance=0; health .env
 ln -sfn "$release" "$root/current.next"; mv -Tf "$root/current.next" "$root/current"; printf '%s %s\n' "$revision" "$(date --iso-8601=seconds)" >"$root/DEPLOYED"
 trap - ERR; printf 'Deployed %s\n' "$revision"
