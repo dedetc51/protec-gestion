@@ -67,7 +67,7 @@
                                         $editable = $role->slug !== 'technical-admin' && in_array($permission->id, $editablePermissionIds, true);
                                         $granted = $role->slug === 'technical-admin' || (bool) $role->permissions->firstWhere('id', $permission->id)?->pivot->granted;
                                         $state = $department ? ($overrides->get($role->id.':'.$permission->id)?->state ?? 'inherit') : $granted;
-                                        $value = session()->hasOldInput('cells') ? old('cells.'.$role->id.'.'.$permission->id, $department ? $state : false) : $state;
+                                        $value = $restoreOldInput ? old('cells.'.$role->id.'.'.$permission->id, $department ? $state : false) : $state;
                                         $controlId = 'cell-'.$role->id.'-'.$permission->id;
                                     @endphp
                                     <td data-role="{{ $role->id }}" headers="matrix-role-{{ $role->id }} matrix-permission-{{ $permission->id }}">

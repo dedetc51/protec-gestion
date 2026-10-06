@@ -88,27 +88,57 @@ class PermissionMatrixService
      */
     public function submissionCells(array $data, bool $departmental): array
     {
-        $roleIds = $this->roles()->modelKeys();
-        $permissionIds = $this->permissions()->modelKeys();
-        if (! $this->sameIds(array_keys($data['represented']), $roleIds)) {
+        if (! $this->hasCompleteManifest($data)) {
             throw ValidationException::withMessages(['represented' => 'Le formulaire est incomplet. Rechargez la page avant de réessayer.']);
-        }
-        foreach ($data['represented'] as $roleId => $manifest) {
-            $ids = explode(',', $manifest);
-            if (! $this->sameIds($ids, $permissionIds)) {
-                throw ValidationException::withMessages(['represented' => 'Le formulaire est incomplet. Rechargez la page avant de réessayer.']);
-            }
         }
         $cells = $data['cells'];
         if (! $departmental) {
-            foreach ($roleIds as $roleId) {
-                foreach ($permissionIds as $permissionId) {
+            foreach ($data['represented'] as $roleId => $manifest) {
+                foreach (explode(',', $manifest) as $permissionId) {
                     $cells[$roleId][$permissionId] ??= false;
                 }
             }
         }
 
         return $cells;
+    }
+
+    public function canRestoreGlobalInput(array $data): bool
+    {
+        if (! $this->hasCompleteManifest($data) || ! is_array($data['cells'] ?? null)) {
+            return false;
+        }
+        foreach ($data['cells'] as $roleId => $states) {
+            if (! array_key_exists($roleId, $data['represented']) || ! is_array($states)) {
+                return false;
+            }
+            $permissionIds = explode(',', $data['represented'][$roleId]);
+            foreach ($states as $permissionId => $state) {
+                if (! in_array((string) $permissionId, $permissionIds, true) || is_array($state)) {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    private function hasCompleteManifest(array $data): bool
+    {
+        if (! in_array($data['submission_complete'] ?? null, ['1', 1], true) || ! is_array($data['represented'] ?? null)) {
+            return false;
+        }
+        if (! $this->sameIds(array_keys($data['represented']), $this->roles()->modelKeys())) {
+            return false;
+        }
+        $permissionIds = $this->permissions()->modelKeys();
+        foreach ($data['represented'] as $manifest) {
+            if (! is_string($manifest) || ! $this->sameIds(explode(',', $manifest), $permissionIds)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /** @param array<int, array<int, bool|int|string>> $cells */

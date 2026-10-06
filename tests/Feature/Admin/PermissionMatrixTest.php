@@ -300,6 +300,71 @@ class PermissionMatrixTest extends TestCase
         return ['global' => [false], 'department' => [true]];
     }
 
+    #[DataProvider('incompleteGlobalSubmissions')]
+    public function test_rejected_incomplete_global_form_retry_preserves_persisted_grants(string $case): void
+    {
+        [$roleId, $permissionId] = $this->pair('volunteer', 'equipment.view');
+        [, $changedPermissionId] = $this->pair('volunteer', 'equipment.update');
+        $payload = $this->payload();
+        unset($payload['cells'][$roleId][$permissionId]);
+        $payload['cells'][$roleId][$changedPermissionId] = '1';
+        if ($case === 'missing marker') {
+            unset($payload['submission_complete']);
+        } elseif ($case === 'stale catalog') {
+            Role::factory()->create(['allows_global' => false, 'allows_department' => true, 'allows_branch' => false]);
+        } else {
+            $payload['represented'][$roleId] = (string) $changedPermissionId;
+        }
+        $this->actingAs($this->actor('technical-admin'))->from('/admin/permissions')
+            ->put('/admin/permissions/global', $payload)->assertRedirect('/admin/permissions')->assertSessionHasErrors();
+        $this->assertDatabaseHas('role_permissions', ['role_id' => $roleId, 'permission_id' => $permissionId, 'granted' => true]);
+
+        $document = new \DOMDocument;
+        $document->loadHTML($this->get('/admin/permissions')->getContent(), LIBXML_NOERROR | LIBXML_NOWARNING);
+        $controls = (new \DOMXPath($document))->query('//form[@id="matrix-form"]//input');
+        $pairs = [];
+        foreach ($controls as $control) {
+            if ($control->getAttribute('type') === 'checkbox' && ! $control->hasAttribute('checked')) {
+                continue;
+            }
+            $pairs[] = urlencode($control->getAttribute('name')).'='.urlencode($control->getAttribute('value'));
+        }
+        parse_str(implode('&', $pairs), $retry);
+        $this->put('/admin/permissions/global', $retry)->assertRedirect('/admin/permissions')->assertSessionHasNoErrors();
+
+        $this->assertDatabaseHas('role_permissions', ['role_id' => $roleId, 'permission_id' => $permissionId, 'granted' => true]);
+        $this->assertDatabaseMissing('role_permissions', ['role_id' => $roleId, 'permission_id' => $changedPermissionId, 'granted' => true]);
+        $this->assertSame([], AuditEvent::firstOrFail()->metadata['changes']);
+    }
+
+    public static function incompleteGlobalSubmissions(): array
+    {
+        return [
+            'missing marker' => ['missing marker'],
+            'incomplete manifest' => ['incomplete manifest'],
+            'stale catalog' => ['stale catalog'],
+        ];
+    }
+
+    public function test_complete_rejected_global_form_preserves_legitimate_unchecked_values(): void
+    {
+        [$roleId, $permissionId] = $this->pair('volunteer', 'equipment.view');
+        [, $invalidPermissionId] = $this->pair('volunteer', 'equipment.update');
+        $payload = $this->payload();
+        unset($payload['cells'][$roleId][$permissionId]);
+        $payload['cells'][$roleId][$invalidPermissionId] = 'invalid';
+        $this->actingAs($this->actor('technical-admin'))->from('/admin/permissions')
+            ->put('/admin/permissions/global', $payload)->assertRedirect('/admin/permissions')->assertSessionHasErrors('cells.'.$roleId.'.'.$invalidPermissionId);
+
+        $document = new \DOMDocument;
+        $document->loadHTML($this->get('/admin/permissions')->getContent(), LIBXML_NOERROR | LIBXML_NOWARNING);
+        $checkbox = (new \DOMXPath($document))->query('//input[@id="cell-'.$roleId.'-'.$permissionId.'"]')->item(0);
+
+        $this->assertFalse($checkbox->hasAttribute('checked'));
+        $this->assertDatabaseHas('role_permissions', ['role_id' => $roleId, 'permission_id' => $permissionId, 'granted' => true]);
+        $this->assertDatabaseCount('audit_events', 0);
+    }
+
     private function actor(string $slug, ?Department $department = null): User
     {
         $user = User::factory()->create();

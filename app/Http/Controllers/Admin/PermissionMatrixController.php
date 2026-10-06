@@ -72,7 +72,9 @@ class PermissionMatrixController extends Controller
             $groups['other'] = ['name' => 'Autres permissions', 'permissions' => $uncategorized];
         }
         $overrides = $department === null ? collect() : DepartmentRolePermission::where('department_id', $department->id)->get()->keyBy(fn ($row): string => $row->role_id.':'.$row->permission_id);
+        $restoreOldInput = $request->session()->hasOldInput('cells')
+            && ($department !== null || $service->canRestoreGlobalInput($request->session()->getOldInput()));
 
-        return view('admin.permissions.index', compact('technical', 'departments', 'department', 'roles', 'groups', 'editablePermissionIds', 'overrides'));
+        return view('admin.permissions.index', compact('technical', 'departments', 'department', 'roles', 'groups', 'editablePermissionIds', 'overrides', 'restoreOldInput'));
     }
 }
