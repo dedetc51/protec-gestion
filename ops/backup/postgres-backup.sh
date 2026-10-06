@@ -2,6 +2,7 @@
 set -Eeuo pipefail
 umask 077
 export COMPOSE_PROJECT_NAME=protec-gestion
+export DOCKER_CONFIG=${DOCKER_CONFIG:-/tmp/protec-gestion-docker-config}
 BACKUP_DIR=${BACKUP_DIR:-/opt/protec-gestion/shared/backups}; RETENTION=${BACKUP_RETENTION_DAYS:-7}; STAMP=${BACKUP_TIMESTAMP:-$(date +%Y%m%d-%H%M%S)}
 ENV_FILE=${BACKUP_ENV_FILE:-/opt/protec-gestion/shared/.env}
 [[ $STAMP =~ ^[0-9]{8}-[0-9]{6}$ && $RETENTION =~ ^[1-9][0-9]*$ ]] || { printf 'Invalid timestamp or retention\n' >&2; exit 2; }

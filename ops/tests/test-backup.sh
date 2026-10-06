@@ -12,10 +12,12 @@ fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 
 cat >"$TMP/bin/docker" <<'EOF'
 #!/usr/bin/env bash
+printf '%s\n' "${DOCKER_CONFIG:-unset}" >"$STUB_DOCKER_CONFIG_LOG"
 printf '%s\n' 'CREATE TABLE users (id bigint);'
 EOF
 chmod +x "$TMP/bin/docker"
-PATH="$TMP/bin:$PATH" BACKUP_DIR="$TMP/backups" BACKUP_TIMESTAMP=20261005-021500 "$SCRIPT"
+PATH="$TMP/bin:$PATH" STUB_DOCKER_CONFIG_LOG="$TMP/docker-config.log" BACKUP_DIR="$TMP/backups" BACKUP_TIMESTAMP=20261005-021500 "$SCRIPT"
+test "$(cat "$TMP/docker-config.log")" = /tmp/protec-gestion-docker-config || fail "backup relies on a protected home directory for Docker configuration"
 ARCHIVE="$TMP/backups/protec-gestion-20261005-021500.sql.gz"
 test -s "$ARCHIVE" || fail "archive missing or empty"
 gzip -t "$ARCHIVE" || fail "invalid gzip archive"
@@ -27,7 +29,7 @@ fi
 test "$mode" = 600 || fail "archive mode is not 0600"
 printf keep >"$TMP/backups/unrelated.txt"
 touch -t 202609010000 "$TMP/backups/unrelated.txt"
-PATH="$TMP/bin:$PATH" BACKUP_DIR="$TMP/backups" BACKUP_TIMESTAMP=20261006-021500 BACKUP_RETENTION_DAYS=7 "$SCRIPT"
+PATH="$TMP/bin:$PATH" STUB_DOCKER_CONFIG_LOG="$TMP/docker-config.log" BACKUP_DIR="$TMP/backups" BACKUP_TIMESTAMP=20261006-021500 BACKUP_RETENTION_DAYS=7 "$SCRIPT"
 test -f "$TMP/backups/unrelated.txt" || fail "unrelated file was pruned"
 
 cat >"$TMP/bin/docker" <<'EOF'
