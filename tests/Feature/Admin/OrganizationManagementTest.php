@@ -119,4 +119,22 @@ class OrganizationManagementTest extends TestCase
         $this->post('/admin/organization/branches', ['department_id' => $id, 'name' => 'équipe historique'])->assertSessionHasErrors('name');
         $this->assertDatabaseCount('audit_events', 0);
     }
+
+    public function test_legacy_renames_reject_the_new_name_and_release_the_old_name(): void
+    {
+        $department = Department::factory()->create(['name' => 'Alpha']);
+        $branch = Branch::factory()->create(['department_id' => $department->id, 'name' => 'Alpha']);
+        DB::table('departments')->where('id', $department->id)->update(['name' => 'Beta']);
+        DB::table('branches')->where('id', $branch->id)->update(['name' => 'Beta']);
+
+        $this->actingAs($this->actor('technical-admin'))->post('/admin/organization/departments', ['name' => 'beta'])->assertSessionHasErrors('name');
+        $this->post('/admin/organization/branches', ['department_id' => $department->id, 'name' => 'beta'])->assertSessionHasErrors('name');
+        $this->assertDatabaseCount('audit_events', 0);
+        $this->post('/admin/organization/departments', ['name' => 'Alpha'])->assertSessionHasNoErrors()->assertRedirect();
+        $this->post('/admin/organization/branches', ['department_id' => $department->id, 'name' => 'Alpha'])->assertSessionHasNoErrors()->assertRedirect();
+        $this->assertSame(1, Department::where('name_key', 'alpha')->count());
+        $this->assertSame(1, Branch::where('department_id', $department->id)->where('name_key', 'alpha')->count());
+        $this->assertDatabaseHas('departments', ['id' => $department->id, 'name' => 'Beta', 'name_key' => null]);
+        $this->assertDatabaseHas('branches', ['id' => $branch->id, 'name' => 'Beta', 'name_key' => null]);
+    }
 }
