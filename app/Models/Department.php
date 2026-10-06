@@ -6,7 +6,6 @@ use Database\Factories\DepartmentFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 #[Fillable(['name'])]
@@ -21,9 +20,9 @@ class Department extends Model
         return $this->hasMany(Branch::class);
     }
 
-    /** @return BelongsToMany<Permission, $this> */
-    public function rolePermissions(): BelongsToMany
+    /** @return HasMany<DepartmentRolePermission, $this> */
+    public function rolePermissions(): HasMany
     {
-        return $this->belongsToMany(Permission::class, 'department_role_permissions')->withPivot(['role_id', 'state']);
+        return $this->hasMany(DepartmentRolePermission::class);
     }
 }

@@ -2,14 +2,16 @@
 
 namespace Database\Factories;
 
-use App\Models\Branch;
 use App\Models\Department;
+use App\Models\DepartmentRolePermission;
+use App\Models\Permission;
+use App\Models\Role;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
- * @extends Factory<Branch>
+ * @extends Factory<DepartmentRolePermission>
  */
-class BranchFactory extends Factory
+class DepartmentRolePermissionFactory extends Factory
 {
     /**
      * Define the model's default state.
@@ -20,7 +22,9 @@ class BranchFactory extends Factory
     {
         return [
             'department_id' => Department::factory(),
-            'name' => fake()->unique()->numerify('Branch ###'),
+            'role_id' => Role::factory(),
+            'permission_id' => Permission::factory(),
+            'state' => 'grant',
         ];
     }
 }

@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Branch;
 use App\Models\Department;
+use App\Models\DepartmentRolePermission;
 use App\Models\Membership;
 use App\Models\Permission;
 use App\Models\Role;
@@ -139,38 +140,109 @@ class OrganizationSchemaTest extends TestCase
 
     public function test_ended_membership_history_allows_rejoining_the_same_branch(): void
     {
-        $old = Membership::factory()->create(['ends_at' => '2026-10-05 12:00:00']);
-        $new = Membership::factory()->for($old->user)->for($old->branch)->create();
+        $this->travelTo(CarbonImmutable::parse('2026-10-06 12:00:00'));
+        $old = Membership::factory()->create(['starts_at' => '2026-10-04 12:00:00', 'ends_at' => '2026-10-05 12:00:00']);
+        $new = Membership::factory()->for($old->user)->for($old->branch)->create(['starts_at' => '2026-10-06 12:00:00']);
 
         $this->assertCount(2, $old->user->memberships);
         $this->assertModelExists($new);
         $this->expectException(QueryException::class);
 
-        Membership::factory()->for($old->user)->for($old->branch)->create();
+        Membership::factory()->for($old->user)->for($old->branch)->create(['starts_at' => '2026-10-06 12:00:00']);
     }
 
     #[DataProvider('assignmentScopes')]
     public function test_open_assignments_are_unique_but_ended_history_is_kept(string $scope): void
     {
+        $this->travelTo(CarbonImmutable::parse('2026-10-06 12:00:00'));
         $role = Role::factory()->create(['allows_global' => true, 'allows_department' => true, 'allows_branch' => true]);
         $scopeId = match ($scope) {
             'department' => Department::factory()->create()->id,
             'branch' => Branch::factory()->create()->id,
             default => null,
         };
-        $old = RoleAssignment::factory()->for($role)->create(['scope_type' => $scope, 'scope_id' => $scopeId, 'ends_at' => '2026-10-05 12:00:00']);
-        $new = RoleAssignment::factory()->for($old->user)->for($role)->create(['scope_type' => $scope, 'scope_id' => $scopeId]);
+        $old = RoleAssignment::factory()->for($role)->create(['scope_type' => $scope, 'scope_id' => $scopeId, 'starts_at' => '2026-10-04 12:00:00', 'ends_at' => '2026-10-05 12:00:00']);
+        $new = RoleAssignment::factory()->for($old->user)->for($role)->create(['scope_type' => $scope, 'scope_id' => $scopeId, 'starts_at' => '2026-10-06 12:00:00']);
 
         $this->assertCount(2, $old->user->roleAssignments);
         $this->assertModelExists($new);
         $this->expectException(QueryException::class);
 
-        RoleAssignment::factory()->for($old->user)->for($role)->create(['scope_type' => $scope, 'scope_id' => $scopeId]);
+        RoleAssignment::factory()->for($old->user)->for($role)->create(['scope_type' => $scope, 'scope_id' => $scopeId, 'starts_at' => '2026-10-06 12:00:00']);
     }
 
     public static function assignmentScopes(): array
     {
         return ['global' => ['global'], 'department' => ['department'], 'branch' => ['branch']];
+    }
+
+    #[DataProvider('overlappingWindows')]
+    public function test_memberships_and_assignments_reject_overlapping_effective_windows(string $model, array $firstWindow, array $secondWindow): void
+    {
+        $first = $model::factory()->create($firstWindow);
+        $identity = $model === Membership::class
+            ? ['user_id' => $first->user_id, 'branch_id' => $first->branch_id]
+            : ['user_id' => $first->user_id, 'role_id' => $first->role_id, 'scope_type' => $first->scope_type, 'scope_id' => $first->scope_id];
+
+        $this->expectException(QueryException::class);
+
+        DB::table($first->getTable())->insert([...$identity, ...$secondWindow]);
+    }
+
+    public static function overlappingWindows(): array
+    {
+        $cases = [];
+        foreach ([Membership::class, RoleAssignment::class] as $model) {
+            $cases[$model.' bounded overlap'] = [$model,
+                ['starts_at' => '2026-10-05 12:00:00', 'ends_at' => '2026-10-07 12:00:00'],
+                ['starts_at' => '2026-10-06 12:00:00', 'ends_at' => '2026-10-08 12:00:00'],
+            ];
+            $cases[$model.' bounded and unbounded overlap'] = [$model,
+                ['starts_at' => '2026-10-05 12:00:00', 'ends_at' => '2026-10-07 12:00:00'],
+                ['starts_at' => '2026-10-06 12:00:00', 'ends_at' => null],
+            ];
+        }
+
+        return $cases;
+    }
+
+    #[DataProvider('effectiveWindowModels')]
+    public function test_adjacent_membership_and_assignment_history_is_allowed(string $model): void
+    {
+        $first = $model::factory()->create(['starts_at' => '2026-10-01 00:00:00', 'ends_at' => '2026-10-02 00:00:00']);
+        $secondFactory = $model::factory()->for($first->user);
+
+        if ($model === Membership::class) {
+            $secondFactory = $secondFactory->for($first->branch);
+        } else {
+            $secondFactory = $secondFactory->for($first->role)->state([
+                'scope_type' => $first->scope_type,
+                'scope_id' => $first->scope_id,
+            ]);
+        }
+
+        $second = $secondFactory->create(['starts_at' => '2026-10-02 00:00:00', 'ends_at' => '2026-10-03 00:00:00']);
+
+        $this->assertModelExists($second);
+    }
+
+    public static function effectiveWindowModels(): array
+    {
+        return [[Membership::class], [RoleAssignment::class]];
+    }
+
+    #[DataProvider('effectiveWindowModels')]
+    public function test_database_rejects_updates_that_make_effective_windows_overlap(string $model): void
+    {
+        $first = $model::factory()->create(['starts_at' => '2026-10-01 00:00:00', 'ends_at' => '2026-10-02 00:00:00']);
+        $identity = $model === Membership::class
+            ? ['user_id' => $first->user_id, 'branch_id' => $first->branch_id]
+            : ['user_id' => $first->user_id, 'role_id' => $first->role_id, 'scope_type' => $first->scope_type, 'scope_id' => $first->scope_id];
+        DB::table($first->getTable())->insert([...$identity, 'starts_at' => '2026-10-02 00:00:00', 'ends_at' => '2026-10-03 00:00:00']);
+
+        $this->expectException(QueryException::class);
+
+        DB::table($first->getTable())->where('id', $first->id)->update(['ends_at' => '2026-10-03 00:00:00']);
     }
 
     #[DataProvider('invalidAssignmentScopes')]
@@ -227,6 +299,58 @@ class OrganizationSchemaTest extends TestCase
         DB::table('role_assignments')->where('id', $assignment->id)->update(['scope_type' => 'organization']);
     }
 
+    public function test_database_rejects_role_assignments_that_the_role_does_not_allow(): void
+    {
+        $role = Role::factory()->department()->create();
+        $user = User::factory()->create();
+
+        $this->expectException(QueryException::class);
+
+        DB::table('role_assignments')->insert([
+            'user_id' => $user->id,
+            'role_id' => $role->id,
+            'scope_type' => 'global',
+            'scope_id' => null,
+        ]);
+    }
+
+    #[DataProvider('malformedDatabaseAssignmentTargets')]
+    public function test_database_rejects_malformed_or_missing_assignment_targets(string $scope, ?int $scopeId): void
+    {
+        $role = Role::factory()->create(['allows_global' => true, 'allows_department' => true, 'allows_branch' => true]);
+        $user = User::factory()->create();
+
+        $this->expectException(QueryException::class);
+
+        DB::table('role_assignments')->insert([
+            'user_id' => $user->id,
+            'role_id' => $role->id,
+            'scope_type' => $scope,
+            'scope_id' => $scopeId,
+        ]);
+    }
+
+    public static function malformedDatabaseAssignmentTargets(): array
+    {
+        return [
+            'global target' => ['global', 123],
+            'missing department' => ['department', null],
+            'missing branch' => ['branch', null],
+            'unknown department' => ['department', 999999],
+            'unknown branch' => ['branch', 999999],
+        ];
+    }
+
+    public function test_database_rejects_disabling_a_role_scope_with_existing_assignments(): void
+    {
+        $role = Role::factory()->global()->create();
+        RoleAssignment::factory()->for($role)->create();
+
+        $this->expectException(QueryException::class);
+
+        DB::table('roles')->where('id', $role->id)->update(['allows_global' => false]);
+    }
+
     public function test_memberships_require_an_existing_branch(): void
     {
         $membership = Membership::factory()->create();
@@ -243,11 +367,12 @@ class OrganizationSchemaTest extends TestCase
         $department = Department::factory()->create();
 
         $role->permissions()->attach($permission, ['granted' => true]);
-        $department->rolePermissions()->attach($permission, ['role_id' => $role->id, 'state' => 'grant']);
+        $override = $department->rolePermissions()->create(['role_id' => $role->id, 'permission_id' => $permission->id, 'state' => 'grant']);
 
         $this->assertTrue($role->permissions->sole()->is($permission));
         $this->assertTrue($permission->roles->sole()->is($role));
-        $this->assertSame('grant', $department->rolePermissions->sole()->pivot->state);
+        $this->assertSame('grant', $department->rolePermissions->sole()->state);
+        $this->assertTrue($override->permission->is($permission));
         $this->assertDatabaseHas('role_permissions', ['role_id' => $role->id, 'permission_id' => $permission->id, 'granted' => true]);
     }
 
@@ -280,6 +405,36 @@ class OrganizationSchemaTest extends TestCase
         $this->expectException(QueryException::class);
 
         DB::table('department_role_permissions')->insert($cell);
+    }
+
+    public function test_department_override_mutations_keep_role_and_permission_identity(): void
+    {
+        $department = Department::factory()->create();
+        $firstRole = Role::factory()->create();
+        $secondRole = Role::factory()->create();
+        $permission = Permission::factory()->create();
+        $firstCell = DepartmentRolePermission::query()->create([
+            'department_id' => $department->id,
+            'role_id' => $firstRole->id,
+            'permission_id' => $permission->id,
+            'state' => 'grant',
+        ]);
+        $secondCell = DepartmentRolePermission::query()->create([
+            'department_id' => $department->id,
+            'role_id' => $secondRole->id,
+            'permission_id' => $permission->id,
+            'state' => 'grant',
+        ]);
+
+        $department->rolePermissions()->where('role_id', $firstRole->id)->where('permission_id', $permission->id)->update(['state' => 'deny']);
+
+        $this->assertSame('deny', $firstCell->fresh()->state);
+        $this->assertSame('grant', $secondCell->fresh()->state);
+
+        $department->rolePermissions()->where('role_id', $firstRole->id)->where('permission_id', $permission->id)->delete();
+
+        $this->assertDatabaseMissing('department_role_permissions', ['id' => $firstCell->id]);
+        $this->assertDatabaseHas('department_role_permissions', ['id' => $secondCell->id, 'state' => 'grant']);
     }
 
     public function test_global_permission_grants_are_unique_per_cell(): void
