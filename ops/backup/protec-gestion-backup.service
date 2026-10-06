@@ -1,0 +1,17 @@
+[Unit]
+Description=Protec-Gestion verified PostgreSQL backup
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/protec-gestion/current
+ExecStart=/opt/protec-gestion/current/ops/backup/postgres-backup.sh
+User=protec-deploy
+Group=protec-deploy
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/protec-gestion/shared/backups

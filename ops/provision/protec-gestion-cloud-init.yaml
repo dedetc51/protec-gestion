@@ -1,0 +1,81 @@
+#cloud-config
+hostname: protec-gestion
+timezone: Europe/Paris
+package_update: true
+package_upgrade: true
+groups:
+  - docker
+packages:
+  - qemu-guest-agent
+  - nftables
+  - unattended-upgrades
+  - ca-certificates
+  - curl
+  - docker.io
+  - docker-compose
+users:
+  - default
+  - name: protec-deploy
+    groups: [docker]
+    shell: /bin/bash
+    lock_passwd: true
+    sudo: ["ALL=(root) NOPASSWD: /usr/bin/systemctl restart docker, /usr/bin/systemctl status docker"]
+    ssh_authorized_keys:
+      - SSH_AUTHORIZED_KEY
+ssh_pwauth: false
+disable_root: true
+write_files:
+  - path: /etc/ssh/sshd_config.d/99-protec-hardening.conf
+    permissions: '0644'
+    content: |
+      PasswordAuthentication no
+      PermitRootLogin no
+  - path: /etc/nftables.d/protec-gestion.nft
+    permissions: '0644'
+    content: |
+      table inet protec_gestion {
+        chain input {
+          type filter hook input priority 0; policy drop;
+          ct state established,related accept
+          iif lo accept
+          ip protocol icmp accept
+          tcp dport 22 ip saddr { ADMIN_CIDR } accept
+          tcp dport HTTP_PORT ip saddr { LAN_CIDR, VPN_CIDR } accept
+        }
+      }
+  - path: /usr/local/sbin/protec-docker-firewall
+    permissions: '0755'
+    content: |
+      #!/bin/sh
+      external_if=$(ip route show default | awk '$1 == "default" { print $5; exit }')
+      [ -n "$external_if" ] || { echo 'Default-route interface not found' >&2; exit 1; }
+      while iptables -C DOCKER-USER -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT 2>/dev/null; do iptables -D DOCKER-USER -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT; done
+      while iptables -C DOCKER-USER -p tcp --dport 80 -s LAN_CIDR -j ACCEPT 2>/dev/null; do iptables -D DOCKER-USER -p tcp --dport 80 -s LAN_CIDR -j ACCEPT; done
+      while iptables -C DOCKER-USER -p tcp --dport 80 -s VPN_CIDR -j ACCEPT 2>/dev/null; do iptables -D DOCKER-USER -p tcp --dport 80 -s VPN_CIDR -j ACCEPT; done
+      while iptables -C DOCKER-USER -p tcp --dport 80 -j DROP 2>/dev/null; do iptables -D DOCKER-USER -p tcp --dport 80 -j DROP; done
+      while iptables -C DOCKER-USER -i "$external_if" -p tcp --dport 80 -s LAN_CIDR -j ACCEPT 2>/dev/null; do iptables -D DOCKER-USER -i "$external_if" -p tcp --dport 80 -s LAN_CIDR -j ACCEPT; done
+      while iptables -C DOCKER-USER -i "$external_if" -p tcp --dport 80 -s VPN_CIDR -j ACCEPT 2>/dev/null; do iptables -D DOCKER-USER -i "$external_if" -p tcp --dport 80 -s VPN_CIDR -j ACCEPT; done
+      while iptables -C DOCKER-USER -i "$external_if" -p tcp --dport 80 -j DROP 2>/dev/null; do iptables -D DOCKER-USER -i "$external_if" -p tcp --dport 80 -j DROP; done
+      iptables -I DOCKER-USER 1 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+      iptables -I DOCKER-USER 2 -i "$external_if" -p tcp --dport 80 -s LAN_CIDR -j ACCEPT
+      iptables -I DOCKER-USER 3 -i "$external_if" -p tcp --dport 80 -s VPN_CIDR -j ACCEPT
+      iptables -I DOCKER-USER 4 -i "$external_if" -p tcp --dport 80 -j DROP
+  - path: /etc/systemd/system/protec-docker-firewall.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      After=docker.service
+      Requires=docker.service
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/sbin/protec-docker-firewall
+      RemainAfterExit=yes
+      [Install]
+      WantedBy=multi-user.target
+runcmd:
+  - [systemctl, enable, --now, qemu-guest-agent]
+  - [sh, -c, "grep -q 'include /etc/nftables.d/\\*.nft' /etc/nftables.conf || printf '\ninclude /etc/nftables.d/*.nft\n' >> /etc/nftables.conf"]
+  - [systemctl, enable, --now, nftables]
+  - [systemctl, enable, --now, protec-docker-firewall.service]
+  - [install, -d, -m, '0750', -o, protec-deploy, -g, protec-deploy, /opt/protec-gestion]
+final_message: "Protec-Gestion guest initialization complete"
