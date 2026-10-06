@@ -56,3 +56,6 @@ VMID/nom, DHCP/ARP/ICMP/DNS, VPN, pare-feu et stockage de sauvegarde.
 doit pas y figurer. `SSH_HOST_FINGERPRINT` doit contenir la ligne exacte
 produite par `ssh-keygen -lf` pour la clé hôte attendue ; aucune acceptation au
 premier contact n'est effectuée.
+Le premier démarrage peut uniquement afficher l'empreinte observée et conserver
+la VM arrêtée pour contrôle opérateur. La reprise doit fournir explicitement
+`SSH_HOST_FINGERPRINT`; aucune clé observée n'est acceptée automatiquement.

@@ -5,7 +5,7 @@ export COMPOSE_PROJECT_NAME=protec-gestion
 BACKUP_DIR=${BACKUP_DIR:-/opt/protec-gestion/shared/backups}; RETENTION=${BACKUP_RETENTION_DAYS:-7}; STAMP=${BACKUP_TIMESTAMP:-$(date +%Y%m%d-%H%M%S)}
 ENV_FILE=${BACKUP_ENV_FILE:-/opt/protec-gestion/shared/.env}
 [[ $STAMP =~ ^[0-9]{8}-[0-9]{6}$ && $RETENTION =~ ^[1-9][0-9]*$ ]] || { printf 'Invalid timestamp or retention\n' >&2; exit 2; }
-stamp_date=${STAMP%-*}; parsed_date=$(date -d "$stamp_date" +%Y%m%d 2>/dev/null || date -j -f '%Y%m%d' "$stamp_date" +%Y%m%d 2>/dev/null || true); [[ $parsed_date == "$stamp_date" ]] || { printf 'Invalid calendar date\n' >&2; exit 2; }
+stamp_date=${STAMP%-*}; stamp_time=${STAMP#*-}; parsed_date=$(date -d "$stamp_date ${stamp_time:0:2}:${stamp_time:2:2}:${stamp_time:4:2}" +%Y%m%d-%H%M%S 2>/dev/null || date -j -f '%Y%m%d-%H%M%S' "$STAMP" +%Y%m%d-%H%M%S 2>/dev/null || true); [[ $parsed_date == "$STAMP" ]] || { printf 'Invalid calendar date or time\n' >&2; exit 2; }
 if [[ -f $ENV_FILE ]]; then
   [[ $(stat -c '%a' "$ENV_FILE") == 600 ]] || { printf 'Backup environment must have mode 0600\n' >&2; exit 2; }
   db_user=$(sed -n 's/^DB_USERNAME=//p' "$ENV_FILE"); db_name=$(sed -n 's/^DB_DATABASE=//p' "$ENV_FILE")

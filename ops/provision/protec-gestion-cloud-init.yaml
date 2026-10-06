@@ -48,13 +48,25 @@ write_files:
     content: |
       #!/bin/sh
       iptables -C DOCKER-USER -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || iptables -I DOCKER-USER 1 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
-      iptables -C DOCKER-USER -p tcp --dport HTTP_PORT -s LAN_CIDR -j ACCEPT 2>/dev/null || iptables -I DOCKER-USER 2 -p tcp --dport HTTP_PORT -s LAN_CIDR -j ACCEPT
-      iptables -C DOCKER-USER -p tcp --dport HTTP_PORT -s VPN_CIDR -j ACCEPT 2>/dev/null || iptables -I DOCKER-USER 3 -p tcp --dport HTTP_PORT -s VPN_CIDR -j ACCEPT
-      iptables -C DOCKER-USER -p tcp --dport HTTP_PORT -j DROP 2>/dev/null || iptables -A DOCKER-USER -p tcp --dport HTTP_PORT -j DROP
+      iptables -C DOCKER-USER -p tcp --dport 80 -s LAN_CIDR -j ACCEPT 2>/dev/null || iptables -I DOCKER-USER 2 -p tcp --dport 80 -s LAN_CIDR -j ACCEPT
+      iptables -C DOCKER-USER -p tcp --dport 80 -s VPN_CIDR -j ACCEPT 2>/dev/null || iptables -I DOCKER-USER 3 -p tcp --dport 80 -s VPN_CIDR -j ACCEPT
+      iptables -C DOCKER-USER -p tcp --dport 80 -j DROP 2>/dev/null || iptables -A DOCKER-USER -p tcp --dport 80 -j DROP
+  - path: /etc/systemd/system/protec-docker-firewall.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      After=docker.service
+      Requires=docker.service
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/sbin/protec-docker-firewall
+      RemainAfterExit=yes
+      [Install]
+      WantedBy=multi-user.target
 runcmd:
   - [systemctl, enable, --now, qemu-guest-agent]
   - [sh, -c, "grep -q 'include /etc/nftables.d/\\*.nft' /etc/nftables.conf || printf '\ninclude /etc/nftables.d/*.nft\n' >> /etc/nftables.conf"]
   - [systemctl, enable, --now, nftables]
-  - [/usr/local/sbin/protec-docker-firewall]
+  - [systemctl, enable, --now, protec-docker-firewall.service]
   - [install, -d, -m, '0750', -o, protec-deploy, -g, protec-deploy, /opt/protec-gestion]
 final_message: "Protec-Gestion guest initialization complete"
