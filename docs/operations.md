@@ -73,5 +73,9 @@ la VM existante avec
 `ops/provision/create-vm.sh --verify-fingerprint '<ligne ssh-keygen -lf exacte>'`.
 La reprise vérifie d'abord VMID, nom, tag de propriété et bridge, compare
 l'empreinte avant toute connexion SSH, puis exécute les validations invité et
-le reboot. Une empreinte différente arrête la reprise sans supprimer la VM.
+le reboot. Après ce reboot, le statut actif de
+`protec-docker-firewall.service` et les quatre règles effectives de
+`DOCKER-USER` sont revérifiés : connexions établies, accès au port conteneur 80
+depuis le LAN, accès depuis le VPN, puis refus de toute autre source. Une
+empreinte différente ou une règle absente arrête la reprise sans supprimer la VM.
 `StrictHostKeyChecking=accept-new` n'est jamais utilisé.

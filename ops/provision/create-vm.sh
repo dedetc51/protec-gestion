@@ -138,7 +138,7 @@ wait_cloud_init() {
 }
 
 verify_guest() {
-  guest_exec sh -c "test \"\$(hostname)\" = '$VM_NAME' && ip -4 addr show | grep -F '$STATIC_IP_CIDR' && ip route | grep -F 'default via $GATEWAY' && getent hosts deb.debian.org && timedatectl show -p NTPSynchronized --value | grep -qx yes && grep -qx 'VERSION_ID=\"13\"' /etc/os-release && docker compose version && systemctl is-active nftables docker"
+  guest_exec sh -c "test \"\$(hostname)\" = '$VM_NAME' && ip -4 addr show | grep -F '$STATIC_IP_CIDR' && ip route | grep -F 'default via $GATEWAY' && getent hosts deb.debian.org && timedatectl show -p NTPSynchronized --value | grep -qx yes && grep -qx 'VERSION_ID=\"13\"' /etc/os-release && docker compose version && systemctl is-active nftables docker && systemctl is-active --quiet protec-docker-firewall.service && iptables -C DOCKER-USER -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT && iptables -C DOCKER-USER -p tcp --dport 80 -s '$LAN_CIDR' -j ACCEPT && iptables -C DOCKER-USER -p tcp --dport 80 -s '$VPN_CIDR' -j ACCEPT && iptables -C DOCKER-USER -p tcp --dport 80 -j DROP"
 }
 
 scan_fingerprint() {

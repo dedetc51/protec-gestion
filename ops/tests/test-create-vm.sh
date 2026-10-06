@@ -30,7 +30,7 @@ case " $* " in
       case "$1" in --arg) case "$2" in status) status=$3;; ssh_fingerprint) fingerprint=$3;; esac; shift 3;; *) shift;; esac
     done
     printf '{"status":"%s","ssh_fingerprint":"%s"}\n' "$status" "$fingerprint";;
-  *) cat >/dev/null; exit 0;;
+  *) input=$(cat); [[ $input == *'"exitcode":1'* ]] && exit 1; exit 0;;
 esac
 EOF
 cat >"$TMP/bin/pvesm" <<'EOF'
@@ -90,7 +90,23 @@ case "$1" in
   status) [[ ${STUB_VM_EXISTS:-0} == 1 ]] && { printf 'status: stopped\n'; exit 0; }; exit 1;;
   list) printf ' VMID NAME STATUS\n'; [[ ${STUB_NAME_COLLISION:-0} == 1 ]] && printf ' 999 protec-gestion stopped\n';;
   config) printf 'name: protec-gestion\ntags: webapp;debian13;protec-gestion\nnet0: virtio=AA:BB:CC:DD:EE:FF,bridge=vmbr0,firewall=1\n';;
-  guest) printf '{"exitcode":0,"exited":true}\n';;
+  guest)
+    if [[ $* == *'systemctl is-active nftables docker'* ]]; then
+      required=(
+        'systemctl is-active --quiet protec-docker-firewall.service'
+        'iptables -C DOCKER-USER -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT'
+        "iptables -C DOCKER-USER -p tcp --dport 80 -s '192.0.2.0/24' -j ACCEPT"
+        "iptables -C DOCKER-USER -p tcp --dport 80 -s '198.51.100.0/24' -j ACCEPT"
+        'iptables -C DOCKER-USER -p tcp --dport 80 -j DROP'
+      )
+      for check in "${required[@]}"; do
+        [[ $* == *"$check"* ]] || { printf '{"exitcode":1,"exited":true}\n'; exit 0; }
+      done
+      if [[ ${STUB_FIREWALL_FAIL_AFTER_REBOOT:-0} == 1 ]] && grep -q '^reboot 115$' "$STUB_QM_LOG"; then
+        printf '{"exitcode":1,"exited":true}\n'; exit 0
+      fi
+    fi
+    printf '{"exitcode":0,"exited":true}\n';;
   create) : >"$STUB_CREATED";;
   importdisk) [[ ${STUB_IMPORT_FAIL:-0} == 1 ]] && exit 33; exit 0;;
 esac
@@ -151,10 +167,19 @@ grep -Eq '^shutdown 115 --timeout 60$' "$TMP/qm.log" || fail 'VM was not shut do
 assert_not_logged '^destroy '
 
 : >"$TMP/qm.log"
-"${base_env[@]}" STUB_VM_EXISTS=1 "$SCRIPT" --verify-fingerprint '256 SHA256:approved protec-gestion (ED25519)' >"$TMP/out" 2>&1
+if ! "${base_env[@]}" STUB_VM_EXISTS=1 "$SCRIPT" --verify-fingerprint '256 SHA256:approved protec-gestion (ED25519)' >"$TMP/out" 2>&1; then
+  sed -n '1,160p' "$TMP/out" >&2
+  sed -n '1,200p' "$TMP/qm.log" >&2
+  fail 'phase 2 verification failed'
+fi
 assert_contains '"status":"verified"' "$TMP/out"
 assert_not_logged '^create '
 assert_not_logged '^destroy '
+
+: >"$TMP/qm.log"
+assert_fails "${base_env[@]}" STUB_VM_EXISTS=1 STUB_FIREWALL_FAIL_AFTER_REBOOT=1 "$SCRIPT" --verify-fingerprint '256 SHA256:approved protec-gestion (ED25519)'
+assert_contains 'post-reboot verification timed out' "$TMP/out"
+! grep -Fq '"status":"verified"' "$TMP/out" || fail 'firewall failure was reported as verified'
 
 : >"$TMP/qm.log"
 assert_fails "${base_env[@]}" STUB_VM_EXISTS=1 "$SCRIPT" --verify-fingerprint '256 SHA256:wrong protec-gestion (ED25519)'

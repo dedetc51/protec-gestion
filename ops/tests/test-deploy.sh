@@ -27,7 +27,11 @@ exec bash -s -- "$revision" "$root"
 EOF
 cat >"$TMP/deploy-bin/git" <<'EOF'
 #!/usr/bin/env bash
-case "$*" in *'rev-parse HEAD'*) printf '%s\n' "$PROTEC_GIT_REVISION";; *'status --porcelain'*) :;; *) exit 0;; esac
+case "$*" in
+  *'rev-parse HEAD'*) printf '%s\n' "${STUB_GIT_HEAD:-$PROTEC_GIT_REVISION}";;
+  *'status --porcelain'*) [[ ${STUB_GIT_DIRTY:-0} == 1 ]] && printf ' M compose.yaml\n';;
+  *) exit 0;;
+esac
 EOF
 cat >"$TMP/deploy-bin/docker" <<'EOF'
 #!/usr/bin/env bash
@@ -88,6 +92,29 @@ run_failed_deploy() {
   [[ $(readlink "$DEPLOY_ROOT/current") == "$DEPLOY_ROOT/releases/$previous" ]] || fail "current switched during $stage failure"
   assert_contains 'Rollback:' "$TMP/out"
 }
+
+run_gate_failure() {
+  local expected=$1; shift
+  : >"$TMP/docker.log"
+  assert_fails env PATH="$TMP/deploy-bin:$PATH" PROTEC_TESTING=1 PROTEC_GIT_REVISION="$revision" PROTEC_SSH_TARGET=host PROTEC_REMOTE_ROOT="$DEPLOY_ROOT" STUB_DOCKER_LOG="$TMP/docker.log" STUB_STAGE_LOG="$TMP/stage.log" "$@" "$DEPLOY"
+  assert_contains "$expected" "$TMP/out"
+  [[ $(readlink "$DEPLOY_ROOT/current") == "$DEPLOY_ROOT/releases/$previous" ]] || fail "current switched after gate failure: $expected"
+  ! grep -Fq 'artisan migrate --force' "$TMP/docker.log" || fail "migration ran after gate failure: $expected"
+}
+
+setup_deploy_case
+rm -f "$DEPLOY_ROOT/shared/.env"
+run_gate_failure 'Missing regular shared .env'
+
+setup_deploy_case
+sed -i.bak '/^DB_PASSWORD=/d' "$DEPLOY_ROOT/shared/.env"; rm -f "$DEPLOY_ROOT/shared/.env.bak"
+run_gate_failure 'Missing required variable DB_PASSWORD'
+
+setup_deploy_case
+run_gate_failure 'Dirty or mismatched checkout' STUB_GIT_DIRTY=1
+
+setup_deploy_case
+run_gate_failure 'Dirty or mismatched checkout' STUB_GIT_HEAD=ffffffffffffffffffffffffffffffffffffffff
 
 setup_deploy_case
 run_failed_deploy dump
