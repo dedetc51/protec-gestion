@@ -3,6 +3,7 @@
 use App\Http\Controllers\Admin\BranchController;
 use App\Http\Controllers\Admin\DepartmentController;
 use App\Http\Controllers\Admin\MemberAssignmentController;
+use App\Http\Controllers\Admin\PermissionMatrixController;
 use App\Http\Controllers\InitialPasswordController;
 use App\Models\User;
 use App\Services\SecurityAudit;
@@ -48,6 +49,10 @@ Route::middleware('auth')->group(function () {
     })->name('logout');
     Route::middleware('password.changed')->group(function () {
         Route::prefix('admin')->name('admin.')->group(function (): void {
+            Route::get('permissions', [PermissionMatrixController::class, 'index'])->name('permissions.index');
+            Route::put('permissions/global', [PermissionMatrixController::class, 'updateGlobal'])->name('permissions.global.update');
+            Route::get('permissions/departments/{department}', [PermissionMatrixController::class, 'department'])->name('permissions.department');
+            Route::put('permissions/departments/{department}', [PermissionMatrixController::class, 'updateDepartment'])->name('permissions.department.update');
             Route::get('organization', [DepartmentController::class, 'index'])->name('organization.index');
             Route::post('organization/departments', [DepartmentController::class, 'store'])->name('organization.departments.store');
             Route::patch('organization/departments/{department}', [DepartmentController::class, 'update'])->name('organization.departments.update');
