@@ -13,7 +13,7 @@ RUN npm run build
 
 FROM php:8.5-fpm-bookworm
 RUN apt-get update && apt-get install -y --no-install-recommends libicu-dev libpq-dev libzip-dev unzip \
-    && docker-php-ext-install intl opcache pcntl pdo_pgsql zip \
+    && docker-php-ext-install intl pcntl pdo_pgsql zip \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 WORKDIR /var/www/html
 COPY --chown=www-data:www-data . .
