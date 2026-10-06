@@ -19,7 +19,12 @@ PATH="$TMP/bin:$PATH" BACKUP_DIR="$TMP/backups" BACKUP_TIMESTAMP=20261005-021500
 ARCHIVE="$TMP/backups/protec-gestion-20261005-021500.sql.gz"
 test -s "$ARCHIVE" || fail "archive missing or empty"
 gzip -t "$ARCHIVE" || fail "invalid gzip archive"
-test "$(stat -f '%Lp' "$ARCHIVE" 2>/dev/null || stat -c '%a' "$ARCHIVE")" = 600 || fail "archive mode is not 0600"
+if mode=$(stat -c '%a' "$ARCHIVE" 2>/dev/null); then
+  :
+else
+  mode=$(stat -f '%Lp' "$ARCHIVE")
+fi
+test "$mode" = 600 || fail "archive mode is not 0600"
 printf keep >"$TMP/backups/unrelated.txt"
 touch -t 202609010000 "$TMP/backups/unrelated.txt"
 PATH="$TMP/bin:$PATH" BACKUP_DIR="$TMP/backups" BACKUP_TIMESTAMP=20261006-021500 BACKUP_RETENTION_DAYS=7 "$SCRIPT"
