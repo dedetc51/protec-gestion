@@ -23,9 +23,7 @@ cat >"$TMP/deploy-bin/ssh" <<'EOF'
 #!/usr/bin/env bash
 if [[ ${*: -1} == true ]]; then exit 0; fi
 revision=${@: -2:1}; root=${@: -1}
-script=$(mktemp)
-cat >"$script"
-exec bash "$script" "$revision" "$root"
+exec bash -s -- "$revision" "$root"
 EOF
 cat >"$TMP/deploy-bin/git" <<'EOF'
 #!/usr/bin/env bash

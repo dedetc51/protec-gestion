@@ -9,7 +9,8 @@ elif [[ ${PROTEC_TESTING:-0} == 1 && $remote_root =~ ^/(private/)?(tmp|var/folde
 else die 'PROTEC_REMOTE_ROOT must be a safe absolute /opt path'
 fi
 ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -- "$target" true 2>/dev/null || die 'SSH host key is unknown or the target is unavailable'
-ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -- "$target" sh -c 'script=$(mktemp) || exit; trap '\''rm -f -- "$script"'\'' EXIT HUP INT TERM; cat >"$script"; bash "$script" "$1" "$2"' sh "$revision" "$remote_root" <<'REMOTE'
+ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -- "$target" bash -s -- "$revision" "$remote_root" <<'REMOTE'
+script=$(mktemp) || exit; cat >"$script"; bash "$script" "$@"; rc=$?; rm -f -- "$script"; exit "$rc"
 set -Eeuo pipefail
 revision=$1; root=$2
 [[ $revision =~ ^[0-9a-f]{40}$ ]] || exit 2
