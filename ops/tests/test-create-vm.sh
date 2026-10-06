@@ -40,11 +40,11 @@ case " $* " in
     esac
     ;;
   *' -n '*)
-    status=''; fingerprint=''
+    status=''; fingerprints=''
     while [ "$#" -gt 0 ]; do
-      case "$1" in --arg) case "$2" in status) status=$3;; ssh_fingerprint) fingerprint=$3;; esac; shift 3;; *) shift;; esac
+      case "$1" in --arg) case "$2" in status) status=$3;; ssh_fingerprints) fingerprints=$3;; esac; shift 3;; *) shift;; esac
     done
-    printf '{"status":"%s","ssh_fingerprint":"%s"}\n' "$status" "$fingerprint";;
+    printf '{"status":"%s","ssh_fingerprints":"%s"}\n' "$status" "$fingerprints";;
   *) input=$(cat); [[ $input == *'"exitcode":1'* ]] && exit 1; exit 0;;
 esac
 EOF
@@ -96,10 +96,12 @@ EOF
 cat >"$TMP/bin/ssh-keyscan" <<'EOF'
 #!/bin/sh
 printf '192.0.2.10 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITest\n'
+printf '192.0.2.10 ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYITest\n'
 EOF
 cat >"$TMP/bin/ssh-keygen" <<'EOF'
 #!/bin/sh
-printf '256 SHA256:approved protec-gestion (ED25519)\n'
+printf '256 SHA256:first-ed25519 protec-gestion (ED25519)\n'
+printf '256 SHA256:approved-ecdsa protec-gestion (ECDSA)\n'
 EOF
 cat >"$TMP/bin/ssh" <<'EOF'
 #!/usr/bin/env bash
@@ -291,14 +293,15 @@ if ! "${base_env[@]}" STUB_VM_EXISTS=0 "$SCRIPT" >"$TMP/out" 2>&1; then
   fail 'phase 1 provisioning failed'
 fi
 assert_contains 'awaiting_fingerprint_approval' "$TMP/out"
-assert_contains 'SHA256:approved' "$TMP/out"
+assert_contains 'SHA256:first-ed25519' "$TMP/out"
+assert_contains 'SHA256:approved-ecdsa' "$TMP/out"
 test -z "$(find "$TMP/hostkeys" -type f -print -quit)" || fail 'temporary SSH host key file was not cleaned up'
 grep -Eq '^start 115$' "$TMP/qm.log" || fail 'VM was not started'
 grep -Eq '^shutdown 115 --timeout 60$' "$TMP/qm.log" || fail 'VM was not shut down cleanly for approval'
 assert_not_logged '^destroy '
 
 : >"$TMP/qm.log"
-if ! "${base_env[@]}" STUB_VM_EXISTS=1 "$SCRIPT" --verify-fingerprint '256 SHA256:approved protec-gestion (ED25519)' >"$TMP/out" 2>&1; then
+if ! "${base_env[@]}" STUB_VM_EXISTS=1 "$SCRIPT" --verify-fingerprint '256 SHA256:approved-ecdsa protec-gestion (ECDSA)' >"$TMP/out" 2>&1; then
   sed -n '1,160p' "$TMP/out" >&2
   sed -n '1,200p' "$TMP/qm.log" >&2
   fail 'phase 2 verification failed'
@@ -309,7 +312,7 @@ assert_not_logged '^create '
 assert_not_logged '^destroy '
 
 : >"$TMP/qm.log"
-assert_fails "${base_env[@]}" STUB_VM_EXISTS=1 STUB_FIREWALL_FAIL_AFTER_REBOOT=1 "$SCRIPT" --verify-fingerprint '256 SHA256:approved protec-gestion (ED25519)'
+assert_fails "${base_env[@]}" STUB_VM_EXISTS=1 STUB_FIREWALL_FAIL_AFTER_REBOOT=1 "$SCRIPT" --verify-fingerprint '256 SHA256:approved-ecdsa protec-gestion (ECDSA)'
 assert_contains 'post-reboot verification timed out' "$TMP/out"
 ! grep -Fq '"status":"verified"' "$TMP/out" || fail 'firewall failure was reported as verified'
 

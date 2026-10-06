@@ -76,13 +76,14 @@ résolveur local ne suffit pas.
 
 Le provisionnement se fait obligatoirement en deux commandes. La première,
 `ops/provision/create-vm.sh`, crée et démarre la VM, attend cloud-init, capture
-l'empreinte avec `ssh-keyscan`/`ssh-keygen`, arrête proprement la VM, imprime un
+et trie les empreintes avec `ssh-keyscan`/`ssh-keygen`, arrête proprement la VM, imprime un
 résumé JSON avec l'état `awaiting_fingerprint_approval` et conserve la VM. Après
 vérification humaine de l'empreinte par un canal distinct, reprendre exactement
 la VM existante avec
 `ops/provision/create-vm.sh --verify-fingerprint '<ligne ssh-keygen -lf exacte>'`.
-La reprise vérifie d'abord VMID, nom, tag de propriété et bridge, compare
-l'empreinte avant toute connexion SSH, puis exécute les validations invité et
+La reprise vérifie d'abord VMID, nom, tag de propriété et bridge, confirme que
+l'empreinte approuvée figure dans l'ensemble observé avant toute connexion SSH,
+puis exécute les validations invité et
 le reboot. Après ce reboot, le statut actif de
 `protec-docker-firewall.service` et les quatre règles effectives de
 `DOCKER-USER` sont revérifiés : connexions établies, accès au port conteneur 80

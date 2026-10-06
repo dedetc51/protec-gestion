@@ -156,13 +156,14 @@ verify_guest() {
   guest_exec sh -c "test \"\$(hostname)\" = '$VM_NAME' && ip -4 addr show | grep -F '$STATIC_IP_CIDR' && ip route | grep -F 'default via $GATEWAY' && getent hosts deb.debian.org && timedatectl show -p NTPSynchronized --value | grep -qx yes && grep -qx 'VERSION_ID=\"13\"' /etc/os-release && docker compose version && systemctl is-active nftables docker && systemctl is-active --quiet protec-docker-firewall.service && iptables -S DOCKER-USER 1 | grep -Eq -- '^-A DOCKER-USER .*--ctstate (ESTABLISHED,RELATED|RELATED,ESTABLISHED).* -j ACCEPT$' && iptables -S DOCKER-USER 2 | grep -Eq -- '^-A DOCKER-USER .*(-s $LAN_CIDR.*--dport 80|--dport 80.*-s $LAN_CIDR).* -j ACCEPT$' && iptables -S DOCKER-USER 3 | grep -Eq -- '^-A DOCKER-USER .*(-s $VPN_CIDR.*--dport 80|--dport 80.*-s $VPN_CIDR).* -j ACCEPT$' && iptables -S DOCKER-USER 4 | grep -Eq -- '^-A DOCKER-USER .*--dport 80.* -j DROP$'"
 }
 
-scan_fingerprint() {
-  local address=$1 output_variable=$2 fingerprint
+scan_fingerprints() {
+  local address=$1 output_variable=$2 fingerprints
   [[ -n $host_keys ]] && rm -f -- "$host_keys"
   host_keys=$(mktemp)
   ssh-keyscan -T 5 "$address" >"$host_keys" 2>/dev/null || die 'unable to scan SSH host key'
-  fingerprint=$(ssh-keygen -lf "$host_keys" | head -1)
-  printf -v "$output_variable" '%s' "$fingerprint"
+  fingerprints=$(ssh-keygen -lf "$host_keys" | LC_ALL=C sort -u)
+  [[ -n $fingerprints ]] || die 'unable to fingerprint SSH host keys'
+  printf -v "$output_variable" '%s' "$fingerprints"
 }
 
 mode=create
@@ -193,18 +194,18 @@ if [[ $mode == resume ]]; then
   qm start "$VMID"
   started_existing=1
   wait_cloud_init || die 'guest agent/cloud-init timed out'
-  scan_fingerprint "$address" observed_fingerprint
-  [[ $observed_fingerprint == "$expected_fingerprint" ]] || die "SSH host fingerprint mismatch: observed $observed_fingerprint"
+  scan_fingerprints "$address" observed_fingerprints
+  grep -Fxq -- "$expected_fingerprint" <<<"$observed_fingerprints" || die "SSH host fingerprint mismatch: approved fingerprint not observed"
   ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$host_keys" "protec-deploy@$address" true || die 'SSH public-key access failed'
   verify_guest || die 'guest validation failed'
   qm reboot "$VMID"
   for attempt in {1..60}; do verify_guest && rebooted=1 && break; sleep 5; done
   [[ ${rebooted:-0} == 1 ]] || die 'post-reboot verification timed out'
-  scan_fingerprint "$address" fingerprint_after
-  [[ $fingerprint_after == "$expected_fingerprint" ]] || die 'SSH fingerprint changed across reboot'
+  scan_fingerprints "$address" fingerprints_after
+  grep -Fxq -- "$expected_fingerprint" <<<"$fingerprints_after" || die 'approved SSH fingerprint not observed after reboot'
   ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$host_keys" "protec-deploy@$address" true || die 'SSH access failed after reboot'
   started_existing=0
-  jq -n --arg vmid "$VMID" --arg name "$VM_NAME" --arg node "$NODE" --arg ip "$address" --arg ssh_fingerprint "$fingerprint_after" --arg status verified '{vmid:($vmid|tonumber),name:$name,node:$node,ip:$ip,ssh_fingerprint:$ssh_fingerprint,status:$status}'
+  jq -n --arg vmid "$VMID" --arg name "$VM_NAME" --arg node "$NODE" --arg ip "$address" --arg ssh_fingerprints "$fingerprints_after" --arg status verified '{vmid:($vmid|tonumber),name:$name,node:$node,ip:$ip,ssh_fingerprints:($ssh_fingerprints|split("\n")),status:$status}'
   exit 0
 fi
 
@@ -222,7 +223,7 @@ qm set "$VMID" --scsi0 "$STORAGE:vm-$VMID-disk-0,discard=on,ssd=1" --boot order=
 qm resize "$VMID" scsi0 40G
 qm start "$VMID"
 wait_cloud_init || die 'guest agent/cloud-init timed out'
-scan_fingerprint "$address" observed_fingerprint
+scan_fingerprints "$address" observed_fingerprints
 preserve_vm=1
 qm shutdown "$VMID" --timeout 60
-jq -n --arg vmid "$VMID" --arg name "$VM_NAME" --arg node "$NODE" --arg ip "$address" --arg ssh_fingerprint "$observed_fingerprint" --arg status awaiting_fingerprint_approval '{vmid:($vmid|tonumber),name:$name,node:$node,ip:$ip,ssh_fingerprint:$ssh_fingerprint,status:$status}'
+jq -n --arg vmid "$VMID" --arg name "$VM_NAME" --arg node "$NODE" --arg ip "$address" --arg ssh_fingerprints "$observed_fingerprints" --arg status awaiting_fingerprint_approval '{vmid:($vmid|tonumber),name:$name,node:$node,ip:$ip,ssh_fingerprints:($ssh_fingerprints|split("\n")),status:$status}'
