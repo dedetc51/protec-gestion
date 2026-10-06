@@ -12,3 +12,14 @@ Verification:
 - Focused suite: 15 tests, 42 assertions passed.
 - Full suite: 115 tests, 531 assertions passed.
 - Pint: passed; `git diff --check`: passed.
+
+## Review fixes
+
+Required a persisted identity for non-global contexts and an active membership in the exact branch for branch-origin assignments. Assignment and membership windows now use the same captured resolution time. Department-origin grants remain independent of branch membership. Added regressions for active, future and expired memberships; unsaved department and branch contexts; and a base grant canceled by that role's department denial.
+
+Review-fix verification:
+
+- RED confirmed: the resolver suite failed on the expected future/expired membership and unsaved-context cases.
+- Focused resolver suite: 12 tests, 30 assertions passed.
+- Full suite: 117 tests, 537 assertions passed.
+- Pint passed.

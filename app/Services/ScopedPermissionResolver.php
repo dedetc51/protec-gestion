@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Authorization\AuthorizationContext;
 use App\Models\DepartmentRolePermission;
+use App\Models\Membership;
 use App\Models\Permission;
 use App\Models\User;
 use App\Support\PermissionCatalog;
@@ -14,10 +15,11 @@ final class ScopedPermissionResolver
 {
     public function allows(User $user, string $permissionKey, AuthorizationContext $context): bool
     {
-        if ($user->deactivated_at !== null) {
+        if (! $this->hasPersistedScope($context) || $user->deactivated_at !== null) {
             return false;
         }
 
+        $at = now();
         $permission = Permission::query()->where('key', $permissionKey)->first();
 
         if ($permission === null) {
@@ -25,7 +27,7 @@ final class ScopedPermissionResolver
         }
 
         $technicalAdmin = $user->roleAssignments()
-            ->active()
+            ->active($at)
             ->where('scope_type', 'global')
             ->whereNull('scope_id')
             ->whereHas('role', fn (Builder $query): Builder => $query->where('slug', 'technical-admin'))
@@ -40,7 +42,7 @@ final class ScopedPermissionResolver
         }
 
         $assignments = $user->roleAssignments()
-            ->active()
+            ->active($at)
             ->where(function (Builder $query) use ($context): void {
                 if ($context->scopeType === 'global') {
                     $query->where('scope_type', 'global');
@@ -71,6 +73,18 @@ final class ScopedPermissionResolver
             return false;
         }
 
+        $branchAssignmentIds = $assignments
+            ->where('scope_type', 'branch')
+            ->pluck('scope_id')
+            ->unique();
+        $activeMembershipBranchIds = $branchAssignmentIds->isEmpty()
+            ? collect()
+            : Membership::query()
+                ->whereBelongsTo($user)
+                ->whereIn('branch_id', $branchAssignmentIds)
+                ->active($at)
+                ->pluck('branch_id');
+
         $overrides = $context->departmentId === null
             ? collect()
             : DepartmentRolePermission::query()
@@ -80,6 +94,10 @@ final class ScopedPermissionResolver
                 ->pluck('state', 'role_id');
 
         foreach ($assignments as $assignment) {
+            if ($assignment->scope_type === 'branch' && ! $activeMembershipBranchIds->contains($assignment->scope_id)) {
+                continue;
+            }
+
             $departmentOverride = $overrides->get($assignment->role_id);
 
             if ($departmentOverride !== null) {
@@ -98,5 +116,24 @@ final class ScopedPermissionResolver
         }
 
         return false;
+    }
+
+    private function hasPersistedScope(AuthorizationContext $context): bool
+    {
+        if (! $context->isPersisted) {
+            return false;
+        }
+
+        if ($context->scopeType === 'global') {
+            return $context->scopeId === null && $context->departmentId === null;
+        }
+
+        if ($context->scopeType === 'department') {
+            return $context->scopeId !== null && $context->departmentId === $context->scopeId;
+        }
+
+        return $context->scopeType === 'branch'
+            && $context->scopeId !== null
+            && $context->departmentId !== null;
     }
 }

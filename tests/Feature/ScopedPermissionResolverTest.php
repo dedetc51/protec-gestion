@@ -6,6 +6,7 @@ use App\Authorization\AuthorizationContext;
 use App\Models\Branch;
 use App\Models\Department;
 use App\Models\DepartmentRolePermission;
+use App\Models\Membership;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\RoleAssignment;
@@ -50,6 +51,7 @@ class ScopedPermissionResolverTest extends TestCase
         $branchMember = User::factory()->create();
         RoleAssignment::factory()->for($departmentMember)->for($departmentRole)->department($department)->create();
         RoleAssignment::factory()->for($branchMember)->for($branchRole)->branch($branch)->create();
+        $this->membership($branchMember, $branch);
         $resolver = app(ScopedPermissionResolver::class);
 
         $this->assertTrue($resolver->allows($departmentMember, 'members.view', AuthorizationContext::department($department)));
@@ -71,6 +73,7 @@ class ScopedPermissionResolverTest extends TestCase
         $user = User::factory()->create();
         RoleAssignment::factory()->for($user)->for($viewRole)->branch($branch)->create();
         RoleAssignment::factory()->for($user)->for($updateRole)->branch($branch)->create();
+        $this->membership($user, $branch);
         $context = AuthorizationContext::branch($branch);
         $resolver = app(ScopedPermissionResolver::class);
 
@@ -93,6 +96,7 @@ class ScopedPermissionResolverTest extends TestCase
             'permission_id' => $globallyDenied->id,
             'state' => 'grant',
         ]);
+        $role->permissions()->attach($this->permission('members.assign_roles'), ['granted' => true]);
         DepartmentRolePermission::query()->create([
             'department_id' => $department->id,
             'role_id' => $role->id,
@@ -107,6 +111,51 @@ class ScopedPermissionResolverTest extends TestCase
         $this->assertTrue($resolver->allows($user, 'members.view', $context));
         $this->assertTrue($resolver->allows($user, 'members.export', $context));
         $this->assertFalse($resolver->allows($user, 'members.assign_roles', $context));
+    }
+
+    public function test_branch_assignments_require_membership_active_at_the_resolution_time(): void
+    {
+        $this->freezeTime();
+        $branch = Branch::factory()->create();
+        $role = Role::factory()->branch()->create();
+        $role->permissions()->attach($this->permission('members.view'));
+        $activeUser = User::factory()->create();
+        $futureUser = User::factory()->create();
+        $expiredUser = User::factory()->create();
+        foreach ([$activeUser, $futureUser, $expiredUser] as $user) {
+            RoleAssignment::factory()->for($user)->for($role)->branch($branch)->create();
+        }
+        $this->membership($activeUser, $branch);
+        $this->membership($futureUser, $branch, ['starts_at' => now()->addDay()]);
+        $this->membership($expiredUser, $branch, ['ends_at' => now()]);
+        $resolver = app(ScopedPermissionResolver::class);
+        $context = AuthorizationContext::branch($branch);
+
+        $this->assertTrue($resolver->allows($activeUser, 'members.view', $context));
+        $this->assertFalse($resolver->allows($futureUser, 'members.view', $context));
+        $this->assertFalse($resolver->allows($expiredUser, 'members.view', $context));
+    }
+
+    public function test_unsaved_department_and_branch_contexts_cannot_reuse_an_existing_scope_grant(): void
+    {
+        $department = Department::factory()->create();
+        $branch = Branch::factory()->for($department)->create();
+        $departmentRole = Role::factory()->department()->create();
+        $branchRole = Role::factory()->branch()->create();
+        $departmentRole->permissions()->attach($this->permission('members.view'));
+        $branchRole->permissions()->attach($this->permission('members.update'));
+        $departmentUser = User::factory()->create();
+        $branchUser = User::factory()->create();
+        RoleAssignment::factory()->for($departmentUser)->for($departmentRole)->department($department)->create();
+        RoleAssignment::factory()->for($branchUser)->for($branchRole)->branch($branch)->create();
+        $this->membership($branchUser, $branch);
+        $unsavedDepartment = Department::factory()->make();
+        $unsavedBranch = Branch::factory()->for($department)->make();
+        $resolver = app(ScopedPermissionResolver::class);
+
+        $this->assertFalse($resolver->allows($branchUser, 'members.update', AuthorizationContext::department($unsavedDepartment)));
+        $this->assertFalse($resolver->allows($branchUser, 'members.update', AuthorizationContext::branch($unsavedBranch)));
+        $this->assertFalse($resolver->allows($departmentUser, 'members.view', AuthorizationContext::branch($unsavedBranch)));
     }
 
     public function test_denial_for_one_role_does_not_cancel_another_roles_grant(): void
@@ -163,6 +212,9 @@ class ScopedPermissionResolverTest extends TestCase
         RoleAssignment::factory()->for($futureUser)->for($role)->branch($branch)->create(['starts_at' => now()->addDay()]);
         RoleAssignment::factory()->for($expiredUser)->for($role)->branch($branch)->create(['ends_at' => now()]);
         RoleAssignment::factory()->for($deactivatedUser)->for($role)->branch($branch)->create();
+        $this->membership($futureUser, $branch);
+        $this->membership($expiredUser, $branch);
+        $this->membership($deactivatedUser, $branch);
         $resolver = app(ScopedPermissionResolver::class);
         $context = AuthorizationContext::branch($branch);
 
@@ -179,6 +231,7 @@ class ScopedPermissionResolverTest extends TestCase
         $role->permissions()->attach($permission);
         $user = User::factory()->create();
         RoleAssignment::factory()->for($user)->for($role)->branch($branch)->create();
+        $this->membership($user, $branch);
 
         $this->assertTrue(Gate::forUser($user)->check('scoped-permission', ['members.view', AuthorizationContext::branch($branch)]));
         $this->assertTrue($user->canIn('members.view', AuthorizationContext::branch($branch)));
@@ -206,6 +259,7 @@ class ScopedPermissionResolverTest extends TestCase
         $role->permissions()->attach($this->permission('branches.manage'));
         $user = User::factory()->create();
         RoleAssignment::factory()->for($user)->for($role)->branch($branch)->create();
+        $this->membership($user, $branch);
 
         $this->assertTrue(Gate::forUser($user)->allows('update', $branch));
         $this->assertFalse(Gate::forUser($user)->allows('update', $otherBranch));
@@ -214,5 +268,11 @@ class ScopedPermissionResolverTest extends TestCase
     private function permission(string $key): Permission
     {
         return Permission::query()->firstOrCreate(['key' => $key], ['name' => $key]);
+    }
+
+    /** @param array<string, mixed> $attributes */
+    private function membership(User $user, Branch $branch, array $attributes = []): Membership
+    {
+        return Membership::factory()->for($user)->for($branch)->create($attributes);
     }
 }
