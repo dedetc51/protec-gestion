@@ -21,7 +21,7 @@ cat >"$TMP/bin/pvesh" <<'EOF'
 case "$*" in *status*) printf '{"memory":{"free":%s}}\n' "${STUB_FREE_MEM:-8589934592}";; *firewall*) printf '{}\n';; esac
 EOF
 cat >"$TMP/bin/jq" <<'EOF'
-#!/bin/sh
+#!/usr/bin/env bash
 case " $* " in
   *' -r '*) cat >/dev/null; printf '%s\n' "${STUB_FREE_MEM:-8589934592}";;
   *' -n '*)
