@@ -11,6 +11,7 @@ CHECKSUM_FILE=${DEBIAN_CHECKSUM_FILE:-$IMAGE.sha512}
 SNIPPET_DIR=${PROXMOX_SNIPPET_DIR:-/var/lib/vz/snippets}
 HTTP_PORT=${HTTP_PORT:-8080}
 BACKUP_STORAGE=nas-backup
+CLOUD_INIT_TIMEOUT_SECONDS=${CLOUD_INIT_TIMEOUT_SECONDS:-900}
 
 owned_vm=0
 preserve_vm=0
@@ -139,8 +140,9 @@ guest_exec() {
 }
 
 wait_cloud_init() {
-  local attempt
-  for attempt in {1..60}; do
+  local attempt attempts
+  attempts=$(((CLOUD_INIT_TIMEOUT_SECONDS + 4) / 5))
+  for ((attempt = 1; attempt <= attempts; attempt++)); do
     guest_exec cloud-init status --wait && return 0
     sleep 5
   done
@@ -173,6 +175,7 @@ require_inputs
 for cidr in "$ADMIN_CIDR" "$LAN_CIDR" "$VPN_CIDR"; do
   [[ $cidr =~ ^[0-9a-fA-F:.]+/[0-9]{1,3}$ ]] || die "invalid CIDR: $cidr"
 done
+[[ $CLOUD_INIT_TIMEOUT_SECONDS =~ ^[0-9]+$ && $CLOUD_INIT_TIMEOUT_SECONDS -ge 300 && $CLOUD_INIT_TIMEOUT_SECONDS -le 1800 ]] || die 'CLOUD_INIT_TIMEOUT_SECONDS must be an integer between 300 and 1800'
 
 if [[ $mode == preflight ]]; then
   [[ -s $IMAGE && -s $CHECKSUM_FILE ]] || die 'verified image cache required for read-only preflight'

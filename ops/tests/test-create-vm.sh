@@ -114,6 +114,16 @@ case "$1" in
   list) printf ' VMID NAME STATUS\n'; [[ ${STUB_NAME_COLLISION:-0} == 1 ]] && printf ' 999 protec-gestion stopped\n';;
   config) printf 'name: protec-gestion\ntags: webapp;debian13;protec-gestion\nnet0: virtio=AA:BB:CC:DD:EE:FF,bridge=vmbr0,firewall=1\n';;
   guest)
+    if [[ $* == *'cloud-init status --wait'* ]]; then
+      count=0
+      [[ -f $STUB_GUEST_COUNT ]] && count=$(<"$STUB_GUEST_COUNT")
+      count=$((count + 1))
+      printf '%s\n' "$count" >"$STUB_GUEST_COUNT"
+      if ((count < ${STUB_CLOUD_INIT_READY_AFTER:-1})); then
+        printf '{"exitcode":1,"exited":true}\n'
+        exit 0
+      fi
+    fi
     if [[ $* == *'systemctl is-active nftables docker'* ]]; then
       required=(
         'systemctl is-active --quiet protec-docker-firewall.service'
@@ -140,7 +150,7 @@ printf 'x' >"$TMP/image"; printf '%0128d  image\n' 0 >"$TMP/image.sha512"
 : >"$TMP/leases"; printf 'reserved 192.0.2.10 protec-gestion\n' >"$TMP/dhcp-reservations"
 
 base_env=(env PATH="$TMP/bin:$PATH" STUB_QM_LOG="$TMP/qm.log" STUB_CREATED="$TMP/created"
-  TMPDIR="$TMP/hostkeys"
+  STUB_GUEST_COUNT="$TMP/guest-count" TMPDIR="$TMP/hostkeys"
   SSH_PUBLIC_KEY="$TMP/id.pub" STATIC_IP_CIDR=192.0.2.10/24 GATEWAY=192.0.2.1 DNS_SERVER=192.0.2.53
   ADMIN_CIDR=192.0.2.0/24 LAN_CIDR=192.0.2.0/24 VPN_CIDR=198.51.100.0/24
   DHCP_LEASE_FILE="$TMP/leases" DHCP_RESERVATION_FILE="$TMP/dhcp-reservations"
@@ -179,6 +189,22 @@ if ! "${base_env[@]}" STUB_VM_EXISTS=0 STUB_FREE_MEM=1 STUB_AVAILABLE_MEM=858993
   fail 'preflight rejected sufficient available node memory'
 fi
 assert_contains 'preflight=ok' "$TMP/out"
+assert_not_logged '^create '
+
+# Debian package upgrades and Docker installation can legitimately keep
+# cloud-init busy beyond five minutes. The default wait must cover 15 minutes.
+: >"$TMP/qm.log"; rm -f "$TMP/created" "$TMP/guest-count"
+if ! "${base_env[@]}" STUB_VM_EXISTS=0 STUB_CLOUD_INIT_READY_AFTER=180 "$SCRIPT" >"$TMP/out" 2>&1; then
+  sed -n '1,160p' "$TMP/out" >&2
+  fail 'phase 1 timed out before the 15-minute cloud-init budget'
+fi
+[[ $(<"$TMP/guest-count") -eq 180 ]] || fail 'cloud-init polling did not honor the 15-minute budget'
+assert_contains 'awaiting_fingerprint_approval' "$TMP/out"
+
+# Invalid timeout configuration is rejected before VM creation.
+: >"$TMP/qm.log"; rm -f "$TMP/created" "$TMP/guest-count"
+assert_fails "${base_env[@]}" STUB_VM_EXISTS=0 CLOUD_INIT_TIMEOUT_SECONDS=0 "$SCRIPT"
+assert_contains 'CLOUD_INIT_TIMEOUT_SECONDS' "$TMP/out"
 assert_not_logged '^create '
 
 # Independent name/IP/DNS/resource/checksum gates all run before creation.
