@@ -67,7 +67,7 @@ cat >"$TMP/bin/ip" <<'EOF'
 #!/bin/sh
 case "$1 $2" in
   'link show') exit 0;; 'neigh show') exit 0;;
-  'route show') printf 'default via %s dev vmbr0\n' "${STUB_LIVE_GATEWAY:-$GATEWAY}";;
+  'route show') printf 'default via %s dev %s\n' "${STUB_LIVE_GATEWAY:-$GATEWAY}" "${STUB_ROUTE_INTERFACE:-vmbr0}";;
   'route get') printf '%s via %s dev vmbr0\n' "$2" "${STUB_LIVE_GATEWAY:-$GATEWAY}";;
 esac
 EOF
@@ -144,10 +144,12 @@ case "$1" in
     if [[ $* == *'systemctl is-active nftables docker'* ]]; then
       required=(
         'systemctl is-active --quiet protec-docker-firewall.service'
+        'external_interface=$(ip route show default'
         'iptables -S DOCKER-USER 1'
         'iptables -S DOCKER-USER 2'
         'iptables -S DOCKER-USER 3'
         'iptables -S DOCKER-USER 4'
+        '-i $external_interface'
       )
       for check in "${required[@]}"; do
         [[ $* == *"$check"* ]] || { printf '{"exitcode":1,"exited":true}\n'; exit 0; }
@@ -265,9 +267,12 @@ exit 0
 EOF
 chmod +x "$TMP/bin/iptables"
 : >"$TMP/iptables.log"
-PATH="$TMP/bin:$PATH" STUB_IPTABLES_LOG="$TMP/iptables.log" "$TMP/firewall-helper"
+PATH="$TMP/bin:$PATH" GATEWAY=192.0.2.1 STUB_ROUTE_INTERFACE=eth0 STUB_IPTABLES_LOG="$TMP/iptables.log" "$TMP/firewall-helper"
 for position in 1 2 3 4; do
   grep -Eq "^-I DOCKER-USER $position " "$TMP/iptables.log" || fail "firewall rule $position is not inserted before RETURN"
+done
+for position in 2 3 4; do
+  grep -Eq "^-I DOCKER-USER $position -i eth0( |$)" "$TMP/iptables.log" || fail "HTTP firewall rule $position is not limited to the external interface"
 done
 ! grep -Eq '^-A DOCKER-USER ' "$TMP/iptables.log" || fail 'firewall helper appends a rule after Docker RETURN'
 

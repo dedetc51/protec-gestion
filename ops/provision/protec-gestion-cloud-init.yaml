@@ -47,14 +47,19 @@ write_files:
     permissions: '0755'
     content: |
       #!/bin/sh
+      external_if=$(ip route show default | awk '$1 == "default" { print $5; exit }')
+      [ -n "$external_if" ] || { echo 'Default-route interface not found' >&2; exit 1; }
       while iptables -C DOCKER-USER -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT 2>/dev/null; do iptables -D DOCKER-USER -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT; done
       while iptables -C DOCKER-USER -p tcp --dport 80 -s LAN_CIDR -j ACCEPT 2>/dev/null; do iptables -D DOCKER-USER -p tcp --dport 80 -s LAN_CIDR -j ACCEPT; done
       while iptables -C DOCKER-USER -p tcp --dport 80 -s VPN_CIDR -j ACCEPT 2>/dev/null; do iptables -D DOCKER-USER -p tcp --dport 80 -s VPN_CIDR -j ACCEPT; done
       while iptables -C DOCKER-USER -p tcp --dport 80 -j DROP 2>/dev/null; do iptables -D DOCKER-USER -p tcp --dport 80 -j DROP; done
+      while iptables -C DOCKER-USER -i "$external_if" -p tcp --dport 80 -s LAN_CIDR -j ACCEPT 2>/dev/null; do iptables -D DOCKER-USER -i "$external_if" -p tcp --dport 80 -s LAN_CIDR -j ACCEPT; done
+      while iptables -C DOCKER-USER -i "$external_if" -p tcp --dport 80 -s VPN_CIDR -j ACCEPT 2>/dev/null; do iptables -D DOCKER-USER -i "$external_if" -p tcp --dport 80 -s VPN_CIDR -j ACCEPT; done
+      while iptables -C DOCKER-USER -i "$external_if" -p tcp --dport 80 -j DROP 2>/dev/null; do iptables -D DOCKER-USER -i "$external_if" -p tcp --dport 80 -j DROP; done
       iptables -I DOCKER-USER 1 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
-      iptables -I DOCKER-USER 2 -p tcp --dport 80 -s LAN_CIDR -j ACCEPT
-      iptables -I DOCKER-USER 3 -p tcp --dport 80 -s VPN_CIDR -j ACCEPT
-      iptables -I DOCKER-USER 4 -p tcp --dport 80 -j DROP
+      iptables -I DOCKER-USER 2 -i "$external_if" -p tcp --dport 80 -s LAN_CIDR -j ACCEPT
+      iptables -I DOCKER-USER 3 -i "$external_if" -p tcp --dport 80 -s VPN_CIDR -j ACCEPT
+      iptables -I DOCKER-USER 4 -i "$external_if" -p tcp --dport 80 -j DROP
   - path: /etc/systemd/system/protec-docker-firewall.service
     permissions: '0644'
     content: |
