@@ -7,6 +7,7 @@ use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Route;
 use Tests\TestCase;
 
 class LoginTest extends TestCase
@@ -17,6 +18,33 @@ class LoginTest extends TestCase
     {
         $this->get('/')->assertRedirect('/login');
         $this->get('/dashboard')->assertRedirect('/login');
+    }
+
+    public function test_trusted_reverse_proxy_https_is_used_for_generated_urls(): void
+    {
+        Route::get('/_proxy-scheme', fn () => response()->json([
+            'secure' => request()->isSecure(),
+            'trusted_proxies' => request()::getTrustedProxies(),
+        ]));
+
+        $response = $this
+            ->withServerVariables([
+                'REMOTE_ADDR' => '192.168.1.240',
+                'HTTP_HOST' => 'app.cd-creation.fr',
+            ])
+            ->withHeaders([
+                'X-Forwarded-Host' => 'app.cd-creation.fr',
+                'X-Forwarded-Proto' => 'https',
+                'X-Forwarded-Port' => '443',
+            ])
+            ->get('/_proxy-scheme');
+
+        $response
+            ->assertOk()
+            ->assertJson([
+                'secure' => true,
+                'trusted_proxies' => ['192.168.1.240'],
+            ]);
     }
 
     public function test_login_normalizes_email_rotates_session_and_logout_invalidates_it(): void
