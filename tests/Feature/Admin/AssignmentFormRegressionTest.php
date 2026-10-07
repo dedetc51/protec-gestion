@@ -3,6 +3,7 @@
 namespace Tests\Feature\Admin;
 
 use App\Authorization\AuthorizationContext;
+use App\Http\Requests\Admin\UpdateMemberAssignmentsRequest;
 use App\Models\AuditEvent;
 use App\Models\Branch;
 use App\Models\Membership;
@@ -245,6 +246,53 @@ class AssignmentFormRegressionTest extends TestCase
     public static function malformedGlobalForms(): array
     {
         return array_map(fn (string $problem): array => [$problem], ['missing nullable identity', 'numeric selection mode', 'null enabled value']);
+    }
+
+    #[DataProvider('concurrentRevocations')]
+    public function test_editor_rejects_a_revocation_committed_after_form_validation(string $revocation): void
+    {
+        [$actor, $subject, $branch, $membership, $assignment] = $this->fixture();
+        $otherActor = $this->admin();
+        $edit = '/admin/assignments/'.$subject->id.'/edit?scope=branch:'.$branch->id;
+        $retained = $this->serialize($this->actingAs($actor)->get($edit)->assertOk()->getContent());
+        $revoked = $this->serialize($this->actingAs($otherActor)->get($edit)->assertOk()->getContent());
+        foreach ($revoked['assignments'] as &$row) {
+            unset($row['enabled']);
+        }
+        unset($row);
+        if ($revocation === 'membership') {
+            unset($revoked['memberships'][0]['enabled']);
+        }
+        $interleaved = false;
+        $this->app->afterResolving(UpdateMemberAssignmentsRequest::class, function (UpdateMemberAssignmentsRequest $request) use (&$interleaved, $otherActor, $actor, $subject, $revoked): void {
+            if ($interleaved) {
+                return;
+            }
+            $request->validated();
+            $interleaved = true;
+            $this->actingAs($otherActor)->put('/admin/assignments/'.$subject->id, $revoked)->assertSessionHasNoErrors()->assertRedirect();
+            $this->actingAs($actor);
+        });
+
+        $this->actingAs($actor)->from($edit)->put('/admin/assignments/'.$subject->id, $retained)->assertSessionHasErrors('editor_token')->assertRedirect($edit);
+
+        $this->assertTrue($interleaved);
+        $this->assertSame([$membership->id], $subject->memberships()->pluck('id')->all());
+        $this->assertSame([$assignment->id], $subject->roleAssignments()->pluck('id')->all());
+        $this->assertTrue($assignment->fresh()->ends_at->eq(now()));
+        if ($revocation === 'membership') {
+            $this->assertTrue($membership->fresh()->ends_at->eq(now()));
+        } else {
+            $this->assertNull($membership->fresh()->ends_at);
+        }
+        $this->assertFalse($subject->canIn('equipment.view', AuthorizationContext::branch($branch)));
+        $this->assertSame(0, AuditEvent::where('actor_id', $actor->id)->count());
+        $this->assertDatabaseHas('audit_events', ['actor_id' => $otherActor->id, 'event' => 'members.role.revoked']);
+    }
+
+    public static function concurrentRevocations(): array
+    {
+        return ['role period' => ['role'], 'membership period' => ['membership']];
     }
 
     private function fixture(): array

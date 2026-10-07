@@ -72,6 +72,11 @@ class UpdateMemberAssignmentsRequest extends FormRequest
         return $this->context;
     }
 
+    public function editorToken(): ?string
+    {
+        return $this->completeEditor ? $this->input('editor_token') : null;
+    }
+
     public function messages(): array
     {
         return [

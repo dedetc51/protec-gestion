@@ -68,7 +68,7 @@ class MemberAssignmentController extends Controller
     public function update(UpdateMemberAssignmentsRequest $request, User $user, MemberAssignmentService $service): RedirectResponse
     {
         $data = $request->validated();
-        $service->replace($user, $data['memberships'], $data['assignments'], $request->user(), $data['represented'] ?? []);
+        $service->replace($user, $data['memberships'], $data['assignments'], $request->user(), $data['represented'] ?? [], $request->editorToken());
 
         return to_route('admin.assignments.edit', ['user' => $user] + $request->editorContext())->with('status', 'Affectations enregistrées. L’historique est conservé.');
     }

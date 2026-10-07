@@ -10,6 +10,7 @@ use App\Models\Membership;
 use App\Models\Role;
 use App\Models\RoleAssignment;
 use App\Models\User;
+use App\Support\MemberAssignmentForm;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
@@ -73,14 +74,14 @@ class MemberAssignmentService
      * @param  array<int, array<string, mixed>>  $assignments
      * @param  array{membership_ids?: list<int>, assignment_ids?: list<int>}  $represented
      */
-    public function replace(User $subject, array $memberships, array $assignments, User $actor, array $represented = []): void
+    public function replace(User $subject, array $memberships, array $assignments, User $actor, array $represented = [], ?string $editorToken = null): void
     {
         Validator::make(compact('memberships', 'assignments', 'represented'), self::rules(), [
             'after' => 'La date de fin doit être postérieure à la date de début.',
             'distinct' => 'Cette antenne est déjà sélectionnée.',
         ])->validate();
 
-        DB::transaction(function () use ($subject, $memberships, $assignments, $actor, $represented): void {
+        DB::transaction(function () use ($subject, $memberships, $assignments, $actor, $represented, $editorToken): void {
             $technicalRole = Role::where('slug', 'technical-admin')->lockForUpdate()->firstOrFail();
             $hadTechnicalAdmin = RoleAssignment::active()->where('role_id', $technicalRole->id)->where('scope_type', 'global')->whereNull('scope_id')->whereHas('user', fn (Builder $query): Builder => $query->whereNull('deactivated_at'))->exists();
             $subject = User::whereKey($subject->id)->lockForUpdate()->firstOrFail();
@@ -145,6 +146,14 @@ class MemberAssignmentService
                 $query->where(fn (Builder $query): Builder => $query->where('scope_type', 'department')->whereIn('scope_id', $departmentIds))
                     ->orWhere(fn (Builder $query): Builder => $query->where('scope_type', 'branch')->whereIn('scope_id', $branchIds));
             })->lockForUpdate()->get();
+            if ($editorToken !== null) {
+                $form = app(MemberAssignmentForm::class);
+                $expected = $form->decode($editorToken);
+                if ($expected === null || ($expected['actor_id'] ?? null) !== $actor->id || ($expected['subject_id'] ?? null) !== $subject->id
+                    || $form->editor($subject, $actor, $expected['scope'], $expected['page'])['manifest'] !== $expected) {
+                    throw ValidationException::withMessages(['editor_token' => 'Le formulaire est incomplet ou a changé. Rechargez la page avant de réessayer.']);
+                }
+            }
             $representedMembershipIds = array_map('intval', $represented['membership_ids'] ?? []);
             $representedAssignmentIds = array_map('intval', $represented['assignment_ids'] ?? []);
             abort_if(array_diff($representedMembershipIds, $currentMemberships->modelKeys()) !== []
