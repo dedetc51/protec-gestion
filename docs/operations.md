@@ -22,6 +22,78 @@ déploiements suivants, il peut être absent uniquement si une lecture directe d
 la base confirme qu'un administrateur actif existe ; ce contrôle ne charge ni
 n'affiche aucun secret de bootstrap.
 
+## Autorisations associatives
+
+Avant la première migration associative, définir `DEFAULT_DEPARTMENT_NAME` et
+`DEFAULT_BRANCH_NAME` dans l'environnement partagé. Les valeurs de repli sont
+`Département initial` et `Antenne initiale`. La migration crée cette organisation
+une fois ; modifier ensuite ces variables ne renomme pas les enregistrements.
+Les départements et antennes se gèrent depuis
+**Administration → Départements et antennes**.
+La désactivation conserve les données et interdit les nouvelles affectations.
+
+Depuis **Administration → Affectations des membres**, sélectionner un membre, ses
+appartenances aux antennes, puis ses rôles et dates d'effet. Une appartenance et
+un rôle sont distincts : un rôle d'antenne doit avoir une appartenance dans cette
+antenne. Plusieurs antennes et rôles peuvent être cumulés. Les responsabilités
+opérationnelles et leurs adjoints acceptent une portée départementale ou locale ;
+le président est départemental et l'administrateur technique est global.
+Les autres rôles sont locaux. Les affectations futures ou terminées et les
+comptes désactivés ne donnent aucun droit. Les retraits terminent les périodes
+et préservent l'historique. Le serveur vérifie chaque périmètre soumis et protège
+la continuité d'au moins un administrateur technique actif.
+
+Les liens **Administration → Règles générales** et **Permissions : département**
+donnent accès aux deux niveaux de la matrice :
+
+- **Générale** : l'administrateur technique coche les permissions accordées à
+  chaque rôle ; ces règles sont les valeurs héritées dans les départements.
+- **Départementale** : le président autorisé ne gère que son département ;
+  l'administrateur technique peut gérer tous les départements. Chaque cellule
+  est **Héritée**, **Accordée** ou **Refusée**. Héritée supprime la surcharge et
+  utilise la règle générale ; les deux autres états la remplacent pour ce rôle.
+
+Seules les permissions délégables peuvent être surchargées. Les permissions
+techniques, dont `technical.manage` et `permissions.manage_global`, restent
+réservées au rôle global `technical-admin`. Les droits départementaux couvrent
+uniquement les antennes de leur département ; un droit local ne couvre aucune
+autre antenne. Les rôles se cumulent : un refus sur un rôle n'annule pas un
+accord apporté par un autre rôle du même périmètre. Les mises à jour groupées
+sont transactionnelles et les changements d'organisation, d'affectations et de
+matrice produisent des événements d'audit sans secret.
+
+Le catalogue initial contient 13 rôles et 63 permissions dans 12 groupes. Les
+bénévoles reçoivent des consultations de base et les adjoints n'ont pas, par
+défaut, de suppression, validation définitive ni gestion de matrice. Le seeder
+`php artisan db:seed --class=AssociationAuthorizationSeeder --force --no-interaction`
+peut être répété : il conserve les identifiants, refus existants et droits
+personnalisés, tout en ajoutant les entrées manquantes. Il ne crée aucun compte
+de démonstration. Éviter `migrate:fresh` et `db:wipe` sur une base opérationnelle.
+
+## Migration associative et compatibilité
+
+Conserver et valider le dump PostgreSQL **avant** toute migration. Le script de
+déploiement utilise `pg_dump` puis `gzip -t` avant `php artisan migrate --force` ;
+un échec de sauvegarde arrête la release. Conserver également le SHA complet de
+la release précédente et la preuve d'un exercice de restauration sur une base
+jetable. Répéter d'abord l'évolution depuis le schéma précédent dans un projet
+Compose au nom unique, avec son volume dédié et aucune connexion à la base
+opérationnelle. Après migration, exécuter le seeder deux fois et comparer les
+comptages de rôles, permissions, groupes, droits et affectations.
+
+La migration conserve `users.role` sans le modifier et convertit les comptes
+historiques `role=admin` en affectations globales `technical-admin`. Le bootstrap
+`protec:ensure-initial-admin` maintient aussi cette affectation. Vérifier après
+migration qu'au moins un compte non désactivé possède cette affectation active
+et que le nombre d'administrateurs correspond au nombre attendu (un dans
+l'installation actuelle). Tester l'accès de cet administrateur à la matrice et
+le refus 403 d'un bénévole. Ne pas supprimer `users.role` dans cette release.
+
+Les nouvelles affectations ne réécrivent pas `users.role`. Un retour à l'ancien
+code utilise donc les anciens droits de ce champ : vérifier explicitement les
+comptes administrateurs historiques et ne pas supposer qu'une promotion ou
+révocation associative est répercutée dans l'ancienne application.
+
 ## Retour arrière
 
 Exécuter sur la VM `ops/deploy/rollback.sh <sha>`. Une restauration de base est
@@ -32,6 +104,16 @@ l'archive. Avant toute intervention, le script mémorise la release désignée p
 il restaure la base si nécessaire puis relance précisément cette release active,
 sans modifier `current`. Les releases en échec et les dumps ne sont jamais
 supprimés.
+
+Pour cette évolution additive, privilégier le retour à la release applicative
+précédente avec son SHA complet en conservant les nouvelles tables et données.
+Ne pas exécuter `php artisan migrate:rollback` comme retour arrière applicatif :
+la migration de catalogue conserve ses données, mais les migrations de schéma
+peuvent supprimer les tables et leur historique. La restauration du dump
+prémigration est une opération distincte ; elle perd les écritures effectuées
+depuis le dump et requiert une validation explicite. Après retour arrière,
+contrôler `/up`, la connexion de l'administrateur historique, les conteneurs,
+les tâches et le timer de sauvegarde, puis conserver les preuves et archives.
 
 ## Sauvegarde et restauration
 
