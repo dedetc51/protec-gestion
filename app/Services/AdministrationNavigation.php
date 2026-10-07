@@ -5,9 +5,12 @@ namespace App\Services;
 use App\Authorization\AuthorizationContext;
 use App\Models\Department;
 use App\Models\User;
+use Illuminate\Database\Eloquent\Builder;
 
 class AdministrationNavigation
 {
+    public function __construct(private ScopedPermissionResolver $resolver) {}
+
     /** @return list<array{label: string, description: string, url: string, current: bool}> */
     public function links(User $actor): array
     {
@@ -15,11 +18,15 @@ class AdministrationNavigation
         $organization = $actor->canIn('departments.manage', AuthorizationContext::global());
         $assignments = $technical;
         $permissionDepartments = [];
-        foreach (Department::orderBy('name')->orderBy('id')->get() as $department) {
-            $context = AuthorizationContext::department($department);
-            $organization = $actor->can('manage', $department) || $organization;
-            $assignments = $actor->canIn('members.assign_roles', $context) || $assignments;
-            if ($department->deactivated_at === null && $actor->canIn('permissions.manage_department', $context)) {
+        $departments = Department::orderBy('name')->orderBy('id')
+            ->when(! $technical, fn (Builder $query): Builder => $query->whereIn('id', $actor->roleAssignments()->active()->where('scope_type', 'department')->select('scope_id')))
+            ->get();
+        $grants = $this->resolver->grantedDepartmentPermissions($actor, ['branches.manage', 'members.assign_roles', 'permissions.manage_department'], $departments);
+        foreach ($departments as $department) {
+            $departmentGrants = $grants[$department->id] ?? [];
+            $organization = $organization || in_array('branches.manage', $departmentGrants, true);
+            $assignments = $assignments || in_array('members.assign_roles', $departmentGrants, true);
+            if ($department->deactivated_at === null && in_array('permissions.manage_department', $departmentGrants, true)) {
                 $permissionDepartments[] = $department;
             }
         }

@@ -12,6 +12,7 @@ use App\Models\Role;
 use App\Models\RoleAssignment;
 use App\Models\User;
 use App\Services\ScopedPermissionResolver;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Gate;
 use Tests\TestCase;
@@ -264,6 +265,46 @@ class ScopedPermissionResolverTest extends TestCase
 
         $this->assertTrue(Gate::forUser($user)->allows('update', $branch));
         $this->assertFalse(Gate::forUser($user)->allows('update', $otherBranch));
+    }
+
+    public function test_bulk_department_resolution_keeps_role_union_and_active_assignment_rules(): void
+    {
+        $this->freezeTime();
+        $department = Department::factory()->create(['deactivated_at' => now()]);
+        $inactiveScope = Department::factory()->create();
+        $first = Role::factory()->department()->create();
+        $second = Role::factory()->department()->create();
+        $branches = $this->permission('branches.manage');
+        $members = $this->permission('members.assign_roles');
+        $technical = $this->permission('technical.manage');
+        $first->permissions()->attach([$branches->id => ['granted' => true], $members->id => ['granted' => false], $technical->id => ['granted' => true]]);
+        $second->permissions()->attach([$branches->id => ['granted' => false], $members->id => ['granted' => true]]);
+        foreach ([[$first, $branches, 'deny'], [$second, $branches, 'grant'], [$first, $members, 'grant'], [$second, $members, 'deny'], [$first, $technical, 'grant']] as [$role, $permission, $state]) {
+            DepartmentRolePermission::create(['department_id' => $department->id, 'role_id' => $role->id, 'permission_id' => $permission->id, 'state' => $state]);
+        }
+        $actor = User::factory()->create();
+        RoleAssignment::factory()->for($actor)->for($first)->department($department)->create();
+        RoleAssignment::factory()->for($actor)->for($second)->department($department)->create();
+        RoleAssignment::factory()->for($actor)->for($first)->department($inactiveScope)->create(['starts_at' => now()->addDay()]);
+        RoleAssignment::factory()->for($actor)->for($second)->department($inactiveScope)->create(['ends_at' => now()]);
+
+        $grants = app(ScopedPermissionResolver::class)->grantedDepartmentPermissions($actor, ['branches.manage', 'members.assign_roles', 'permissions.manage_department', 'technical.manage', 'unknown.permission'], Department::whereIn('id', [$department->id, $inactiveScope->id])->get());
+
+        $this->assertSame(['branches.manage', 'members.assign_roles'], $grants[$department->id]);
+        $this->assertSame([], $grants[$inactiveScope->id] ?? []);
+    }
+
+    public function test_bulk_department_resolution_rejects_deactivated_actors_and_unsaved_scopes(): void
+    {
+        $department = Department::factory()->create();
+        $actor = User::factory()->create();
+        RoleAssignment::factory()->for($actor)->create(['role_id' => Role::where('slug', 'technical-admin')->value('id')]);
+        $departments = new Collection([$department, Department::factory()->make(['id' => $department->id + 100])]);
+        $resolver = app(ScopedPermissionResolver::class);
+
+        $this->assertSame([$department->id => ['technical.manage']], $resolver->grantedDepartmentPermissions($actor, ['technical.manage', 'unknown.permission'], $departments));
+        $actor->forceFill(['deactivated_at' => now()])->save();
+        $this->assertSame([], $resolver->grantedDepartmentPermissions($actor, ['technical.manage'], $departments));
     }
 
     private function permission(string $key): Permission

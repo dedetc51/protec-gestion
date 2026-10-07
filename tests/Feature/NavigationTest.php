@@ -11,6 +11,8 @@ use App\Models\Role;
 use App\Models\RoleAssignment;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 class NavigationTest extends TestCase
@@ -113,6 +115,71 @@ class NavigationTest extends TestCase
 
         $this->actingAs($president)->get('/admin')->assertForbidden();
         $this->get('/dashboard')->assertDontSee('href="'.route('admin.index').'"', false);
+    }
+
+    #[DataProvider('navigationActors')]
+    public function test_unrelated_departments_do_not_multiply_dashboard_queries(string $type): void
+    {
+        $department = Department::factory()->create();
+        $actor = match ($type) {
+            'president' => $this->actor('department-president', $department),
+            'technical' => $this->actor('technical-admin'),
+            default => User::factory()->create(),
+        };
+        if ($type === 'volunteer') {
+            $branch = Branch::factory()->for($department)->create();
+            Membership::factory()->for($actor)->for($branch)->create();
+            RoleAssignment::factory()->for($actor)->create(['role_id' => Role::where('slug', 'volunteer')->value('id'), 'scope_type' => 'branch', 'scope_id' => $branch->id]);
+        }
+        $this->actingAs($actor);
+        $baseline = $this->requestQueries('/dashboard');
+        Department::factory()->count(20)->create();
+
+        $expanded = $this->requestQueries('/dashboard');
+
+        $this->assertSame($baseline, $expanded, 'Unrelated departments must not add navigation queries.');
+    }
+
+    public static function navigationActors(): array
+    {
+        return ['member' => ['member'], 'branch volunteer' => ['volunteer'], 'department president' => ['president'], 'technical administrator' => ['technical']];
+    }
+
+    public function test_many_applicable_departments_use_a_bounded_query_count(): void
+    {
+        $actor = $this->actor('department-president', Department::factory()->create());
+        $this->actingAs($actor);
+        $baseline = $this->requestQueries('/dashboard');
+        foreach (Department::factory()->count(20)->create() as $department) {
+            RoleAssignment::factory()->for($actor)->create(['role_id' => Role::where('slug', 'department-president')->value('id'), 'scope_type' => 'department', 'scope_id' => $department->id]);
+        }
+
+        $expanded = $this->requestQueries('/dashboard');
+
+        $this->assertSame($baseline, $expanded, 'Applicable scopes must share prepared permission data.');
+    }
+
+    public function test_administration_landing_reuses_navigation_without_extra_queries(): void
+    {
+        $this->actingAs($this->actor('department-president', Department::factory()->create()));
+        $dashboard = $this->requestQueries('/dashboard');
+
+        $landing = $this->requestQueries('/admin');
+
+        $this->assertSame($dashboard, $landing);
+    }
+
+    private function requestQueries(string $path): int
+    {
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+        try {
+            $this->get($path)->assertOk();
+
+            return count(DB::getQueryLog());
+        } finally {
+            DB::disableQueryLog();
+        }
     }
 
     private function actor(string $slug, ?Department $department = null): User

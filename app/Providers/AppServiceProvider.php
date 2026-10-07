@@ -37,7 +37,9 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(Branch::class, BranchPolicy::class);
 
         View::composer('layouts.app', function (\Illuminate\View\View $view): void {
-            $view->with('administrationLinks', app(AdministrationNavigation::class)->links(request()->user()));
+            if (! array_key_exists('administrationLinks', $view->getData())) {
+                $view->with('administrationLinks', app(AdministrationNavigation::class)->links(request()->user()));
+            }
         });
     }
 }
