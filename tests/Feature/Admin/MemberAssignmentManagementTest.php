@@ -136,15 +136,15 @@ class MemberAssignmentManagementTest extends TestCase
         return $user;
     }
 
-    public function test_form_submission_requires_its_final_marker_and_preserves_sparse_field_indices(): void
+    public function test_form_submission_requires_its_final_marker_and_its_editor_manifest(): void
     {
         $subject = User::factory()->create();
         $branch = Branch::factory()->create();
         $this->actingAs($this->actor());
         $this->put('/admin/assignments/'.$subject->id, ['selection_mode' => '1', 'memberships' => [], 'assignments' => []])->assertSessionHasErrors('submission_complete');
         $payload = ['selection_mode' => '1', 'submission_complete' => '1', 'memberships' => [7 => ['enabled' => '1', 'branch_id' => $branch->id]], 'assignments' => []];
-        $this->put('/admin/assignments/'.$subject->id, $payload)->assertRedirect();
-        $this->assertDatabaseHas('memberships', ['user_id' => $subject->id, 'branch_id' => $branch->id]);
+        $this->put('/admin/assignments/'.$subject->id, $payload)->assertSessionHasErrors('editor_token');
+        $this->assertDatabaseCount('memberships', 0);
     }
 
     public function test_removing_one_technical_admin_succeeds_only_with_another_active_admin(): void

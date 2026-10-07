@@ -6,12 +6,10 @@ use App\Authorization\AuthorizationContext;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\UpdateMemberAssignmentsRequest;
 use App\Models\Branch;
-use App\Models\Role;
 use App\Models\User;
 use App\Services\MemberAssignmentService;
+use App\Support\MemberAssignmentForm;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\Eloquent\Collection;
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -55,45 +53,16 @@ class MemberAssignmentController extends Controller
         return view('admin.assignments.index', compact('users', 'search', 'scopeNames'));
     }
 
-    public function edit(Request $request, User $user, MemberAssignmentService $service): View
+    public function edit(Request $request, User $user, MemberAssignmentService $service, MemberAssignmentForm $form): View
     {
         abort_unless($service->canManage($user, $request->user()), 403);
-        $technical = $request->user()->canIn('technical.manage', AuthorizationContext::global());
-        $departments = $service->departments($request->user());
-        $branchIds = $departments->flatMap(fn ($department) => $department->branches->modelKeys())->all();
-        $roles = Role::orderBy('name')->get();
-        $memberships = $user->memberships()->whereIn('branch_id', $branchIds)->orderBy('id')->get();
-        $assignments = $user->roleAssignments()->where(function (Builder $query) use ($technical, $departments, $branchIds): void {
-            if ($technical) {
-                return;
-            }
-            $query->where(fn (Builder $query): Builder => $query->where('scope_type', 'department')->whereIn('scope_id', $departments->modelKeys()))
-                ->orWhere(fn (Builder $query): Builder => $query->where('scope_type', 'branch')->whereIn('scope_id', $branchIds));
-        })->with('role')->orderBy('id')->get();
-        $membershipRows = [];
-        $assignmentRows = [];
-        foreach ($departments as $department) {
-            if ($department->deactivated_at !== null) {
-                continue;
-            }
-            foreach ($roles->where('allows_department', true) as $role) {
-                $assignmentRows[] = $this->assignmentRow($assignments, $role->id, 'department', $department->id, $role->name.' — Département : '.$department->name);
-            }
-            foreach ($department->branches->whereNull('deactivated_at') as $branch) {
-                $record = $memberships->first(fn ($record): bool => $record->branch_id === $branch->id && $this->hasRemainingWindow($record));
-                $membershipRows[] = ['record_id' => $record?->id, 'branch_id' => $branch->id, 'label' => $branch->name.' — '.$department->name, 'enabled' => $record !== null, 'starts_at' => $record?->starts_at?->format('Y-m-d\TH:i:s'), 'ends_at' => $record?->ends_at?->format('Y-m-d\TH:i:s')];
-                foreach ($roles->where('allows_branch', true) as $role) {
-                    $assignmentRows[] = $this->assignmentRow($assignments, $role->id, 'branch', $branch->id, $role->name.' — Antenne : '.$branch->name);
-                }
-            }
-        }
-        if ($technical) {
-            foreach ($roles->where('allows_global', true) as $role) {
-                $assignmentRows[] = $this->assignmentRow($assignments, $role->id, 'global', null, $role->name.' — Global');
-            }
-        }
+        $context = $request->validate(['scope' => ['nullable', 'string', 'regex:/^(global|(?:department|branch):[1-9][0-9]*)$/'], 'page' => ['sometimes', 'integer', 'min:1']]);
+        $editor = $form->editor($user, $request->user(), $context['scope'] ?? null, (int) ($context['page'] ?? 1));
+        $old = $request->session()->getOldInput();
+        $oldRows = ['memberships' => $old['memberships'] ?? [], 'assignments' => $old['assignments'] ?? []];
+        $restoreOldInput = $form->matches($old, $editor['manifest']);
 
-        return view('admin.assignments.edit', compact('user', 'membershipRows', 'assignmentRows', 'memberships', 'assignments'));
+        return view('admin.assignments.edit', $editor + compact('user', 'oldRows', 'restoreOldInput'));
     }
 
     public function update(UpdateMemberAssignmentsRequest $request, User $user, MemberAssignmentService $service): RedirectResponse
@@ -101,19 +70,6 @@ class MemberAssignmentController extends Controller
         $data = $request->validated();
         $service->replace($user, $data['memberships'], $data['assignments'], $request->user(), $data['represented'] ?? []);
 
-        return to_route('admin.assignments.edit', $user)->with('status', 'Affectations enregistrées. L’historique est conservé.');
-    }
-
-    private function assignmentRow(Collection $assignments, int $roleId, string $scope, ?int $scopeId, string $label): array
-    {
-        $record = $assignments->first(fn ($record): bool => $record->role_id === $roleId && $record->scope_type === $scope && $record->scope_id === $scopeId && $this->hasRemainingWindow($record));
-
-        return ['record_id' => $record?->id, 'role_id' => $roleId, 'scope_type' => $scope, 'scope_id' => $scopeId, 'label' => $label, 'enabled' => $record !== null, 'starts_at' => $record?->starts_at?->format('Y-m-d\TH:i:s'), 'ends_at' => $record?->ends_at?->format('Y-m-d\TH:i:s')];
-    }
-
-    private function hasRemainingWindow(Model $record): bool
-    {
-        return ($record->ends_at === null || $record->ends_at->isFuture())
-            && ($record->starts_at === null || $record->ends_at === null || $record->ends_at->gt($record->starts_at));
+        return to_route('admin.assignments.edit', ['user' => $user] + $request->editorContext())->with('status', 'Affectations enregistrées. L’historique est conservé.');
     }
 }
