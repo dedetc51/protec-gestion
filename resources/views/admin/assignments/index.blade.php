@@ -1,7 +1,10 @@
 @extends('layouts.app')
 @section('title', 'Affectations des membres')
 @section('content')
-<h1>Affectations des membres</h1>
+<div class="page-heading"><h1>Affectations des membres</h1><p>Recherchez un membre pour gérer ses antennes et ses responsabilités.</p></div>
+@if($errors->any())
+<div class="alert" role="alert" tabindex="-1" data-error-summary><h2>Vérifiez la recherche</h2><ul>@foreach($errors->all() as $error)<li><a href="#member-search">{{ $error }}</a></li>@endforeach</ul></div>
+@endif
 <form method="get" action="{{ route('admin.assignments.index') }}">
 <label for="member-search">Rechercher un nom ou une adresse e-mail</label>
 <input id="member-search" type="search" name="q" value="{{ $search }}" maxlength="255"><button>Rechercher</button>

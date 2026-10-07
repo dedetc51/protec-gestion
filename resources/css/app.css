@@ -1,3 +1,63 @@
 @import 'tailwindcss';
+
+.workspace:has([data-permission-matrix]){min-width:0}
+[data-permission-matrix] [hidden]{display:none!important}
+.matrix-scopes{display:flex;flex-wrap:wrap;gap:.5rem;margin-bottom:1.5rem}.matrix-scopes a{min-height:44px;padding:.65rem .85rem;border:1px solid var(--line);background:white;text-decoration:none}.matrix-scopes a[aria-current]{border-color:var(--red);color:var(--red-dark);font-weight:700}
+.matrix-tools{display:flex;flex-wrap:wrap;gap:1rem;margin-bottom:1rem}.matrix-tools>div{flex:1;min-width:12rem}.matrix-tools label{display:block;font-weight:600;margin-bottom:.35rem}.matrix-tools input,.matrix-tools select{width:100%;min-height:44px;border:1px solid #9aa6ae;padding:.6rem;background:white;color:var(--ink);font:inherit}.matrix-role-picker{display:none}
+.matrix-legend{max-width:75ch;font-size:.95rem;line-height:1.6}.matrix-scroll{max-height:65vh;overflow:auto;border:1px solid var(--line);background:white}.matrix-table{border-collapse:separate;border-spacing:0;text-align:left;font-size:.9rem;width:100%}.matrix-table caption{text-align:left;padding:1rem;font-weight:700;color:var(--ink)}.matrix-table th,.matrix-table td{padding:.65rem .75rem;border-bottom:1px solid var(--line);min-width:13rem}.matrix-table th[scope=row]{position:sticky;left:0;z-index:1;background:white;min-width:15rem}.matrix-table thead th{position:sticky;top:0;z-index:2;background:var(--ink);color:white;vertical-align:top}.matrix-table thead th:first-child{left:0;z-index:3}.matrix-table .matrix-group th{background:#e9edef;border-top:2px solid #9aa6ae;font-weight:700}.matrix-scope-label,.matrix-key{display:block;font-weight:400;font-size:.8rem;margin-top:.25rem}.matrix-key{color:var(--muted)}.matrix-table select{min-height:44px;max-width:100%;padding:.45rem;border:1px solid #9aa6ae;font:inherit;background:white;color:var(--ink)}.matrix-check{display:flex;align-items:center;gap:.6rem;min-height:44px;cursor:pointer}.matrix-check input{width:1.2rem;height:1.2rem;accent-color:var(--green)}.matrix-locked{font-size:.85rem;color:var(--muted)}.matrix-save{display:flex;align-items:center;gap:1rem;flex-wrap:wrap;margin-top:1.5rem}.matrix-save button{background:var(--red);color:white;border:0;padding:.85rem 1rem;font-weight:700;min-height:44px}.matrix-save span,.matrix-count{color:var(--muted);font-size:.9rem}
+@media(max-width:750px){.matrix-enhanced .matrix-role-picker{display:block}.matrix-enhanced .matrix-scroll{max-height:none;overflow:visible}.matrix-enhanced .matrix-table,.matrix-enhanced .matrix-table tbody{display:block;width:100%}.matrix-enhanced .matrix-table thead{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}.matrix-enhanced .matrix-table tr{display:grid;grid-template-columns:1fr}.matrix-enhanced .matrix-table th,.matrix-enhanced .matrix-table td{min-width:0;border-bottom:0}.matrix-enhanced .matrix-table th[scope=row]{position:static;padding-bottom:0}.matrix-enhanced .matrix-table td{border-bottom:1px solid var(--line)}.matrix-enhanced .matrix-table select{width:100%}.matrix-enhanced .matrix-table .matrix-group{border-top:2px solid #9aa6ae}.matrix-enhanced .matrix-table .matrix-group th{border-top:0}.matrix-save button{width:100%}}
 @media(max-width:750px){.sidebar{visibility:hidden}.sidebar.is-open{visibility:visible}}
 :root{--ink:#17202a;--muted:#61707d;--paper:#f4f6f7;--white:#fff;--red:#b21f2d;--red-dark:#841722;--green:#176b45;--line:#dbe0e3;font-family:Inter,Avenir,"Segoe UI",sans-serif;color:var(--ink);background:var(--paper)}*{box-sizing:border-box}body{margin:0;min-height:100vh}a{color:inherit}button,input{font:inherit}.skip-link{position:fixed;left:1rem;top:-5rem;background:var(--ink);color:white;padding:.75rem;z-index:20}.skip-link:focus{top:1rem}.shell{display:grid;grid-template-columns:17rem 1fr;min-height:100vh}.sidebar{background:#222b33;color:white;padding:2rem 1.25rem}.identity{display:flex;align-items:center;gap:.8rem;margin-bottom:3rem}.identity span,.brand-mark{display:grid;place-items:center;width:2.75rem;height:2.75rem;background:var(--red);color:white;font-weight:800;border-radius:.4rem}.sidebar nav{display:grid;gap:.35rem}.sidebar nav a{padding:.85rem 1rem;text-decoration:none;border-left:3px solid transparent}.sidebar nav a[aria-current=page]{background:#303b44;border-color:#e54855}.workspace header{display:flex;justify-content:flex-end;align-items:center;min-height:5rem;padding:0 3rem;background:white;border-bottom:1px solid var(--line)}.workspace header>div{display:flex;align-items:center;gap:1.5rem}.workspace header form{display:inline}#nav-toggle{display:none}main{padding:3rem;max-width:75rem}.page-heading{max-width:48rem;margin-bottom:2rem}.page-heading>p:first-child{color:var(--red-dark);font-weight:700}.page-heading h1{font-size:clamp(2rem,4vw,3.4rem);line-height:1.05;margin:.4rem 0 1rem}.page-heading p{color:var(--muted);font-size:1.1rem}.status-panel,.module-grid article,.empty-state{background:white;border:1px solid var(--line);border-radius:.65rem;padding:1.5rem}.status-panel{display:flex;justify-content:space-between;align-items:center;border-left:5px solid var(--green)}.status{color:var(--green);font-weight:700}.module-grid{display:grid;grid-template-columns:1fr 1fr;gap:1.25rem;margin-top:1.25rem}.module-grid article{border-top:4px solid var(--red)}.module-grid a{font-weight:700;color:var(--red-dark)}.auth-page{display:grid;place-items:center;padding:2rem;background:linear-gradient(135deg,#eef1f3 65%,#d8dee1)}.auth-card{width:min(100%,28rem);background:white;padding:2.5rem;border-top:6px solid var(--red);box-shadow:0 1rem 3rem #17202a1c}.auth-card form{display:grid;gap:.65rem;margin-top:1.5rem}.auth-card label{font-weight:700;margin-top:.5rem}.auth-card input{padding:.8rem;border:1px solid #9aa6ae;border-radius:.3rem}.auth-card button{margin-top:.75rem;background:var(--red);border:0;color:white;padding:.85rem;border-radius:.3rem;font-weight:700}.text-button{background:none!important;color:var(--red-dark)!important;padding:0!important}.alert{background:#fff0f1;color:#75131d;padding:1rem;border-left:4px solid var(--red)}:focus-visible{outline:3px solid #176bb5;outline-offset:3px}@media(max-width:750px){.shell{display:block}.sidebar{position:fixed;inset:0 20% 0 0;z-index:10;transform:translateX(-100%);transition:transform .2s}.sidebar.is-open{transform:none}.workspace header{padding:0 1.25rem;justify-content:space-between}#nav-toggle{display:block}main{padding:2rem 1.25rem}.module-grid{grid-template-columns:1fr}}@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+
+/* Shared administration surfaces keep the permission matrix as the dense workspace. */
+.shell{grid-template-columns:17rem minmax(0,1fr)}
+.workspace{min-width:0}
+.sidebar{position:sticky;top:0;height:100dvh;overflow-y:auto}
+.sidebar .administration-nav{margin-top:1.5rem;padding-top:1.5rem;border-top:1px solid #53616c}
+.sidebar a:focus-visible{outline-color:white}
+.administration{width:100%;line-height:1.6;overflow-wrap:anywhere}
+.administration h2{font-size:1.35rem;font-weight:700;margin:1.25rem 0 .75rem;line-height:1.3}
+.administration h3{font-size:1.1rem;font-weight:650;margin:1rem 0 .5rem}
+.administration p{max-width:78ch;margin:.65rem 0}
+.administration .page-heading{margin-bottom:2rem}
+.administration .panel{background:var(--white);border-top:2px solid var(--line);padding:1.5rem;margin:1.5rem 0}
+.administration ul:not(.administration-tools){padding-left:1.25rem;list-style:disc}
+.administration .administration-tools{list-style:none;padding:0}
+.administration-tools li{border-top:1px solid var(--line);align-items:start}
+.administration-tools a{display:flex;align-items:center;color:var(--red-dark);text-underline-offset:.2em}
+.administration-tools p{margin:0}
+.administration form:not(#matrix-form){display:flex;flex-wrap:wrap;align-items:center;gap:.75rem;margin:1rem 0}
+.administration label{font-weight:600}
+.administration input:not([type=hidden]):not([type=checkbox]),.administration select{min-height:44px;max-width:100%;min-width:0;border:1px solid #8b98a2;background:white;color:var(--ink);padding:.6rem .75rem;font:inherit}
+.administration input[type=checkbox]{width:1.25rem;height:1.25rem;accent-color:var(--green);flex-shrink:0}
+.administration label:has(input[type=checkbox]){display:flex;align-items:center;gap:.65rem;min-height:44px;cursor:pointer}
+.administration button{min-height:44px;background:var(--red);color:white;border:0;padding:.7rem 1rem;font:inherit;font-weight:700;cursor:pointer}
+.administration form:has(input[value=DELETE]) button{background:white;color:var(--red-dark);border:1px solid var(--red-dark)}
+.administration fieldset{min-width:0;width:100%;border:1px solid var(--line);padding:1rem;margin:.5rem 0}
+.administration legend{font-weight:700;padding:0 .4rem;max-width:100%}
+.administration fieldset fieldset{background:white}
+.administration .chip{display:inline-block;margin:.15rem .25rem .15rem 0;padding:.2rem .6rem;background:#e9edef;border-left:2px solid #8b98a2;font-size:.9rem}
+.administration details{border-top:1px solid var(--line);margin:1.5rem 0;padding-top:1rem}
+.administration summary{cursor:pointer;min-height:44px;font-weight:600}
+.administration .alert{margin:1rem 0}
+.administration .alert h2{margin-top:0}
+.administration .alert a{text-decoration:underline;text-underline-offset:.2em}
+.administration .status-panel{justify-content:flex-start;gap:.75rem;border-radius:0;padding:1rem}
+.administration .matrix-table select{font-size:.9rem}
+.administration .matrix-check{font-weight:400}
+
+@media(max-width:750px){
+    .sidebar{position:static;inset:auto;height:auto;visibility:visible;transform:none}
+    #nav-toggle{display:none}
+    .navigation-enhanced #nav-toggle{display:inline-flex;align-items:center;min-height:44px;padding:.5rem .75rem;border:1px solid #8b98a2;background:white}
+    .navigation-enhanced .sidebar{position:fixed;inset:0 auto 0 0;width:min(85%,23rem);height:100dvh;visibility:hidden;transform:translateX(-100%)}
+    .navigation-enhanced .sidebar.is-open{visibility:visible;transform:none}
+    .workspace header>div{gap:.75rem;min-width:0;flex-wrap:wrap;justify-content:flex-end}
+    .workspace header .text-button{min-height:44px}
+    .administration .panel{padding:1rem}
+    .administration form:not(#matrix-form){align-items:stretch}
+    .administration input:not([type=hidden]):not([type=checkbox]),.administration select,.administration form:not(#matrix-form)>button{width:100%}
+    .administration fieldset label:not(:has(input)){display:block;margin-top:.75rem}
+    .administration .alert a{display:inline-flex;align-items:center;min-height:44px}
+}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*::before,*::after{animation:none!important;transition:none!important}}

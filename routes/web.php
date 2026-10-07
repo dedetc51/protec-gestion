@@ -6,6 +6,7 @@ use App\Http\Controllers\Admin\MemberAssignmentController;
 use App\Http\Controllers\Admin\PermissionMatrixController;
 use App\Http\Controllers\InitialPasswordController;
 use App\Models\User;
+use App\Services\AdministrationNavigation;
 use App\Services\SecurityAudit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -67,10 +68,11 @@ Route::middleware('auth')->group(function () {
         Route::view('/dashboard', 'dashboard')->name('dashboard');
         Route::view('/equipment', 'modules.coming-soon', ['module' => 'Matériel'])->name('equipment.index');
         Route::view('/vehicles', 'modules.coming-soon', ['module' => 'Véhicules'])->name('vehicles.index');
-        Route::get('/admin', function (Request $request) {
-            abort_unless($request->user()->isAdmin(), 403);
+        Route::get('/admin', function (Request $request, AdministrationNavigation $navigation) {
+            $administrationLinks = $navigation->links($request->user());
+            abort_if($administrationLinks === [], 403);
 
-            return view('admin.index');
+            return view('admin.index', compact('administrationLinks'));
         })->name('admin.index');
     });
 });

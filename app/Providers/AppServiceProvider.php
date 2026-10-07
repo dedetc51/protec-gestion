@@ -8,8 +8,10 @@ use App\Models\Department;
 use App\Models\User;
 use App\Policies\BranchPolicy;
 use App\Policies\DepartmentPolicy;
+use App\Services\AdministrationNavigation;
 use App\Services\ScopedPermissionResolver;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\View;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -33,5 +35,9 @@ class AppServiceProvider extends ServiceProvider
 
         Gate::policy(Department::class, DepartmentPolicy::class);
         Gate::policy(Branch::class, BranchPolicy::class);
+
+        View::composer('layouts.app', function (\Illuminate\View\View $view): void {
+            $view->with('administrationLinks', app(AdministrationNavigation::class)->links(request()->user()));
+        });
     }
 }

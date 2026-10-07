@@ -1,4 +1,32 @@
-const toggle=document.querySelector('#nav-toggle');const sidebar=document.querySelector('#sidebar');if(toggle&&sidebar){const mobile=window.matchMedia('(max-width: 750px)');const setOpen=open=>{sidebar.classList.toggle('is-open',open);toggle.setAttribute('aria-expanded',String(open));sidebar.toggleAttribute('inert',mobile.matches&&!open);sidebar.setAttribute('aria-hidden',String(mobile.matches&&!open));if(open)sidebar.querySelector('a')?.focus()};const close=()=>{setOpen(false);toggle.focus()};setOpen(false);toggle.addEventListener('click',()=>setOpen(toggle.getAttribute('aria-expanded')!=='true'));document.addEventListener('keydown',event=>{if(event.key==='Escape'&&sidebar.classList.contains('is-open'))close()});mobile.addEventListener('change',()=>setOpen(false))}
+const toggle = document.querySelector('#nav-toggle');
+const sidebar = document.querySelector('#sidebar');
+if (toggle && sidebar) {
+    const mobile = window.matchMedia('(max-width: 750px)');
+    document.body.classList.add('navigation-enhanced');
+    const setOpen = open => {
+        sidebar.classList.toggle('is-open', open);
+        toggle.setAttribute('aria-expanded', String(open));
+        sidebar.toggleAttribute('inert', mobile.matches && !open);
+        sidebar.setAttribute('aria-hidden', String(mobile.matches && !open));
+        if (open) sidebar.querySelector('a')?.focus();
+    };
+    const close = () => {
+        setOpen(false);
+        toggle.focus();
+    };
+    setOpen(false);
+    toggle.addEventListener('click', () => setOpen(toggle.getAttribute('aria-expanded') !== 'true'));
+    document.addEventListener('keydown', event => {
+        if (event.key==='Escape' && sidebar.classList.contains('is-open')) close();
+    });
+    mobile.addEventListener('change', () => {
+        const focusWasInMenu = sidebar.contains(document.activeElement);
+        const focusWasOnToggle = document.activeElement === toggle;
+        setOpen(false);
+        if (mobile.matches && focusWasInMenu) toggle.focus();
+        if (!mobile.matches && focusWasOnToggle) sidebar.querySelector('a')?.focus();
+    });
+}
 
 const matrix = document.querySelector('[data-permission-matrix]');
 if (matrix) {
@@ -32,7 +60,7 @@ if (matrix) {
     mobile.addEventListener('change', update);
     matrix.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
         checkbox.addEventListener('change', () => {
-            checkbox.closest('label').querySelector('[data-matrix-state]').textContent = checkbox.checked ? 'Accordée' : 'Refusée';
+            checkbox.closest('label').querySelector('[data-matrix-state]').textContent = checkbox.checked ? '✓ Accordée' : '− Refusée';
         });
     });
     matrix.querySelectorAll('[data-matrix-error]').forEach(link => {
@@ -47,4 +75,18 @@ if (matrix) {
         });
     });
     update();
+}
+
+const errorSummary = document.querySelector('[data-error-summary]');
+if (errorSummary) {
+    errorSummary.focus();
+    errorSummary.querySelectorAll('a[href^="#"]').forEach(link => {
+        link.addEventListener('click', event => {
+            const target = document.getElementById(link.hash.slice(1));
+            if (!target) return;
+            event.preventDefault();
+            target.focus();
+            target.scrollIntoView({ block: 'center' });
+        });
+    });
 }

@@ -1,15 +1,36 @@
 @extends('layouts.app')
 @section('title', 'Affectations de '.$user->name)
 @section('content')
-<h1>Affectations de {{ $user->name }}</h1>
+<div class="page-heading"><h1>Affectations de {{ $user->name }}</h1>
 <p>{{ $user->email }}</p>
+</div>
 <p>Cochez les appartenances et les responsabilités à conserver. Les cases décochées terminent uniquement les périodes affichées dans ce formulaire. Les autres périodes et départements conservent leurs affectations.</p>
 <p>Les dates sont facultatives. Une fin exclut l’accès dès cet instant. Modifier une période en cours crée une nouvelle période à partir d’aujourd’hui et conserve la précédente.</p>
-@if(session('status'))<p role="status" aria-live="polite">{{ session('status') }}</p>@endif
 @if($errors->any())
-<div role="alert" tabindex="-1"><h2>Vérifiez les affectations</h2><ul>@foreach($errors->messages() as $field => $messages)<li><a href="#{{ str_replace('.', '_', $field) }}">{{ $messages[0] }}</a></li>@endforeach</ul></div>
+<div class="alert" role="alert" tabindex="-1" data-error-summary><h2>Vérifiez les affectations</h2><ul>
+@foreach($errors->messages() as $field => $messages)
+@php
+    $target = 'assignment-form';
+    if (preg_match('/^(memberships|assignments)\.([0-9]+)(?:\.(branch_id|role_id|scope_type|scope_id|starts_at|ends_at))?$/', $field, $matches)) {
+        $rows = $matches[1] === 'memberships' ? $membershipRows : $assignmentRows;
+        if (isset($rows[(int) $matches[2]])) {
+            $suffix = $matches[3] ?? null;
+            $target = $matches[1].'_'.$matches[2];
+            if ($matches[1] === 'assignments' && in_array($suffix, [null, 'scope_id', 'scope_type'], true)) {
+                $target .= '_scope_id';
+            } elseif ($suffix) {
+                $target .= '_'.$suffix;
+            }
+        }
+    } elseif (in_array($field, ['memberships', 'assignments'], true)) {
+        $target = $field;
+    }
+@endphp
+<li><a href="#{{ $target }}">{{ $messages[0] }}</a></li>
+@endforeach
+</ul></div>
 @endif
-<form method="post" action="{{ route('admin.assignments.update', $user) }}">
+<form id="assignment-form" tabindex="-1" method="post" action="{{ route('admin.assignments.update', $user) }}">
 @csrf @method('PUT')
 <input type="hidden" name="selection_mode" value="1">
 <fieldset id="memberships" tabindex="-1"><legend>Appartenances aux antennes</legend>
