@@ -29,7 +29,7 @@ return new class extends Migration
 
             if (DB::getDriverName() === 'pgsql') {
                 DB::unprepared(<<<'SQL'
-CREATE FUNCTION invalidate_legacy_organization_name_key() RETURNS trigger AS $$
+CREATE OR REPLACE FUNCTION invalidate_legacy_organization_name_key() RETURNS trigger AS $$
 BEGIN
     IF NEW.name IS DISTINCT FROM OLD.name AND NEW.name_key IS NOT DISTINCT FROM OLD.name_key THEN
         NEW.name_key := NULL;
