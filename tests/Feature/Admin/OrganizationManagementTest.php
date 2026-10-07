@@ -5,11 +5,16 @@ namespace Tests\Feature\Admin;
 use App\Models\AuditEvent;
 use App\Models\Branch;
 use App\Models\Department;
+use App\Models\DepartmentRolePermission;
+use App\Models\Membership;
+use App\Models\Permission;
 use App\Models\Role;
 use App\Models\RoleAssignment;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 class OrganizationManagementTest extends TestCase
@@ -68,6 +73,47 @@ class OrganizationManagementTest extends TestCase
         $this->assertNotNull($department->fresh()->deactivated_at);
         $this->assertModelExists($branch);
         $this->assertDatabaseHas('audit_events', ['event' => 'organization.department.deactivated']);
+    }
+
+    #[DataProvider('branchDeletionCases')]
+    public function test_branch_deactivation_requires_the_explicit_delete_grant(string $slug, ?string $denial, bool $allowed): void
+    {
+        $branch = Branch::factory()->create();
+        $actor = User::factory()->create();
+        $role = Role::where('slug', $slug)->firstOrFail();
+        RoleAssignment::factory()->for($actor)->create(['role_id' => $role->id, 'scope_type' => $slug === 'department-president' ? 'department' : 'branch', 'scope_id' => $slug === 'department-president' ? $branch->department_id : $branch->id]);
+        Membership::factory()->for($actor)->for($branch)->create();
+        if ($denial !== null) {
+            $permissionId = Permission::where('key', 'branches.delete')->value('id');
+            if ($denial === 'global') {
+                $role->permissions()->updateExistingPivot($permissionId, ['granted' => false]);
+            } else {
+                DepartmentRolePermission::create(['department_id' => $branch->department_id, 'role_id' => $role->id, 'permission_id' => $permissionId, 'state' => 'deny']);
+            }
+        }
+
+        $this->assertSame($allowed, Gate::forUser($actor)->allows('delete', $branch));
+        $response = $this->actingAs($actor)->delete('/admin/organization/branches/'.$branch->id);
+        if ($allowed) {
+            $response->assertRedirect();
+            $this->assertNotNull($branch->fresh()->deactivated_at);
+            $this->assertDatabaseHas('audit_events', ['event' => 'organization.branch.deactivated', 'actor_id' => $actor->id]);
+        } else {
+            $response->assertForbidden();
+            $this->assertNull($branch->fresh()->deactivated_at);
+            $this->assertDatabaseCount('audit_events', 0);
+        }
+    }
+
+    public static function branchDeletionCases(): array
+    {
+        return [
+            'seeded deputy' => ['branch-deputy', null, false],
+            'seeded manager' => ['branch-manager', null, true],
+            'seeded president' => ['department-president', null, true],
+            'global denial retains manage' => ['branch-manager', 'global', false],
+            'department denial retains manage' => ['department-president', 'department', false],
+        ];
     }
 
     private function actor(string $slug, ?Department $department = null): User

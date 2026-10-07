@@ -34,7 +34,6 @@ class BranchPolicy
     {
         $context = AuthorizationContext::branch($branch);
 
-        return $user->canIn('branches.delete', $context)
-            || $user->canIn('branches.manage', $context);
+        return $user->canIn('branches.delete', $context);
     }
 }
